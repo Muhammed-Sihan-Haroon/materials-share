@@ -6,5 +6,5 @@
 window.SITE = {
   name: "Class Materials",
   salt: "217ca45b7dcf1f42508295cfb09ae5d2",
-  submitUrl: "",
+  submitUrl: "https://materials-api.sihanharoon.workers.dev",
 };
