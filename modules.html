@@ -150,6 +150,7 @@
         ix = fresh;
         await L.gh.commit([...extra, ...(await Lecturer.moduleEntries(m)), await L.indexEntry(ix)], message);
         Lecturer.say($("vSave"), "Saved. Students see changes in about a minute.", "ok");
+        $("vSave").dataset.saved = String(Number($("vSave").dataset.saved || 0) + 1);   // lets automated tests wait for this exact save
         if (after) after();
       } catch (e) {
         Lecturer.say($("vSave"), "Couldn't save: " + (e.message || e.name), "err");
