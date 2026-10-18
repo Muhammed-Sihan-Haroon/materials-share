@@ -46,6 +46,10 @@
       <h1 id="aTitle"></h1>
       <p class="muted" id="aDue"></p>
       <div class="brief" id="aBrief"></div>
+      <div id="aFiles" hidden>
+        <h2 style="margin-top:16px">Worksheet &amp; files</h2>
+        <div class="files" id="aFileList"></div>
+      </div>
       <div id="aCrit" hidden>
         <h2 style="margin-top:16px">What your lecturer is looking for</h2>
         <ul class="list-plain" id="aCritList"></ul>
@@ -64,7 +68,7 @@
         <p class="muted" id="sFilesInfo">Up to 20 MB in total.</p>
         <label for="sNote">Note to your lecturer (optional)</label>
         <textarea id="sNote" maxlength="1000" style="min-height:70px"></textarea>
-        <p class="muted">Your work is encrypted on this device before it's sent. Only your lecturer can open it.</p>
+        <p class="muted">Your work is encrypted on this device before it's sent. Only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
         <button class="btn" id="subBtn">Submit</button>
         <div class="bar" id="bar" hidden><span id="barFill"></span></div>
         <p id="subMsg" class="muted"></p>
@@ -279,6 +283,21 @@
       li.textContent = c;
       ul.append(li);
     }
+    const wl = $("aFileList");
+    wl.textContent = "";
+    for (const f of b.files || []) {
+      const btn = document.createElement("button");
+      const name = document.createElement("span");
+      const sz = document.createElement("span");
+      name.textContent = f.name;
+      sz.className = "sz";
+      sz.textContent = MS.sizeText(f.size) + " ↓";
+      btn.type = "button";
+      btn.append(name, sz);
+      btn.onclick = () => saveOne(f, sz);
+      wl.append(btn);
+    }
+    $("aFiles").hidden = !(b.files && b.files.length);
     const state = MS.activityState(current.meta);
     const due = current.meta.deadline ? "Due " + MS.fmtDate(current.meta.deadline) : "No deadline";
     $("aDue").textContent = state === "late" ? due + " · late submissions are accepted but marked late" : due;
