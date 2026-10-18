@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
 <title>Activities &amp; marking</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,47 +12,9 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="topbar"><div class="wrap wide topbar-in">
-  <a class="brand" href="./"><span class="mark" id="mark" aria-hidden="true"></span><span><b id="site">Class Materials</b><small id="sub" hidden></small></span></a>
-  <nav class="nav" aria-label="Lecturer pages"><a href="admin.html">Materials</a><a href="review.html" aria-current="page">Activities &amp; marking</a></nav>
-  <a class="bar-end" href="./">Student page</a>
-</div></header>
+<header id="ltop"></header>
 <main class="wrap wide">
 
-  <!-- connection -->
-  <div class="card narrow" id="conn" style="max-width:640px">
-    <h2>GitHub connection</h2>
-    <div class="grid">
-      <div><label for="repo">Repository (owner/name)</label><input id="repo" placeholder="your-username/materials"></div>
-      <div><label for="branch">Branch</label><input id="branch" value="main"></div>
-    </div>
-    <label for="token">Access token</label>
-    <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
-    <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
-    <p class="actions" style="margin-top:14px"><button class="btn" id="connect">Connect</button>
-    <span id="connStatus" class="muted"></span></p>
-    <p class="muted" id="svcStatus"></p>
-  </div>
-
-  <!-- passphrase -->
-  <div class="card narrow" id="lock" hidden>
-    <div id="setup" hidden>
-      <h2>Create your marking passphrase</h2>
-      <p class="muted">Student work is encrypted so that only this passphrase can open it. Pick one you won't forget: <b>if it's lost, nobody can recover the submissions</b>. Four or five random words work well.</p>
-      <label for="p1">Passphrase (at least 12 characters)</label>
-      <input type="password" id="p1" autocomplete="new-password">
-      <label for="p2">Repeat passphrase</label>
-      <input type="password" id="p2" autocomplete="new-password">
-      <button class="btn full" id="createKey">Create</button>
-    </div>
-    <form id="unlock" hidden>
-      <h2>Unlock marking</h2>
-      <label for="pw">Marking passphrase</label>
-      <input type="password" id="pw" autocomplete="current-password">
-      <button class="btn full" id="unlockBtn">Unlock</button>
-    </form>
-    <p id="lockMsg" class="muted"></p>
-  </div>
 
   <div id="app" class="shell" hidden>
     <aside class="side">
@@ -74,6 +37,10 @@
           <div><label for="aModule">Module (optional)</label><input id="aModule" maxlength="40" placeholder="COM106"></div>
           <div><label for="aDeadline">Deadline (optional)</label><input id="aDeadline" type="datetime-local"></div>
           <div><label for="aOut">Mark out of (optional)</label><input id="aOut" type="number" min="1" step="1" placeholder="No mark"></div>
+        </div>
+        <div class="grid" id="aPlace">
+          <div><label for="aMod">Add to module (optional)</label><select id="aMod"><option value="">Not in a module</option></select></div>
+          <div><label for="aWeek">Week</label><select id="aWeek" disabled></select></div>
         </div>
         <label class="check"><input type="checkbox" id="aLate" checked> Accept late submissions (they're flagged as late)</label>
         <label for="aBrief">Instructions for students</label>
@@ -153,23 +120,10 @@
   </div>
 </main>
 
-<div class="overlay" id="present" hidden>
-  <p class="ptitle" id="pTitle"></p>
-  <p class="step">Go to</p>
-  <div class="url" id="pHost"></div>
-  <p class="step">and enter</p>
-  <div class="big" id="pCode"></div>
-  <p class="muted" style="margin-top:3vh;font-size:1.1rem" id="pSub"></p>
-  <p class="muted" id="pNote"></p>
-  <p class="actions" style="justify-content:center;margin-top:4vh">
-    <button class="btn ghost" id="pCopy">Copy link</button>
-    <button class="btn" id="pClose">Back</button>
-  </p>
-</div>
-
 <script src="config.js"></script>
 <script src="shared.js"></script>
 <script src="gh.js"></script>
+<script src="lecturer.js"></script>
 <script>
 (function () {
   "use strict";
@@ -178,29 +132,17 @@
   const siteUrl = new URL("./", location.href);
   const siteHost = (siteUrl.host + siteUrl.pathname).replace(/\/$/, "");
   const LABEL = { met: "Met", partly: "Partly met", not: "Not yet" };
-  const MAMMOTH = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
-  const JSZIP = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+  const MAMMOTH = "vendor/mammoth.browser.min.js";
+  const JSZIP = "vendor/jszip.min.js";
   const TEXT = /\.(txt|md|py|java|js|mjs|ts|jsx|tsx|html?|css|scss|json|sql|xml|ya?ml|c|h|cpp|hpp|cs|php|rb|go|rs|kt|swift|sh|bat|ps1|r|csv|tsv|log|ini|cfg|toml|env|gitignore|dockerfile)$/i;
 
   document.title = "Activities & marking · " + SITE.name;
   MS.brand();
 
-  const store = {
-    get(k, s) { try { return JSON.parse((s || localStorage).getItem(k)); } catch { return null; } },
-    set(k, v, s) { try { (s || localStorage).setItem(k, JSON.stringify(v)); } catch {} },
-    del(k, s) { try { (s || localStorage).removeItem(k); } catch {} },
-  };
-
-  let conn = store.get("ms-conn") || store.get("ms-conn", sessionStorage) || {};
-  $("repo").value = conn.repo || "";
-  $("branch").value = conn.branch || "main";
-  $("token").value = conn.token || "";
-  $("remember").checked = !!store.get("ms-conn");
-
-  let gh = null, vault = null, lecturerFile = null, index = null;
+  let L = null, conn = null, gh = null, vault = null, svc = null, index = null;
   let act = null, subs = [], pos = -1, cur = null, openSeq = 0, urls = [], aiOn = false;
-  const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-  const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const PDFJS = "vendor/pdf.min.js";
+  const PDFJS_WORKER = "vendor/pdf.worker.min.js";
 
   const busy = async (btn, label, fn) => {
     const before = btn.textContent;
@@ -210,134 +152,27 @@
   };
   const say = (el, msg, cls) => { el.className = cls || "muted"; el.textContent = msg; };
 
-  // ---------- submissions service
-  async function svc(method, path, body) {
-    if (!SVC) throw new Error("The submissions service isn't set up yet — add submitUrl to config.js (see README).");
-    let r;
-    try {
-      r = await fetch(SVC + path, { method, body, cache: "no-store", headers: { Authorization: "Bearer " + conn.token } });
-    } catch {
-      throw new Error("Couldn't reach the submissions service at " + SVC);
-    }
-    if (!r.ok) {
-      let m = "Submissions service " + r.status;
-      try { m += ": " + (await r.json()).error; } catch {}
-      const e = new Error(m);
-      e.status = r.status;
-      throw e;
-    }
-    return r;
-  }
-
-  // ---------- connect
-  $("connect").onclick = () => {
-    conn = { repo: $("repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, ""),
-             branch: $("branch").value.trim() || "main", token: $("token").value.trim() };
-    store.del("ms-conn");
-    store.del("ms-conn", sessionStorage);
-    store.set("ms-conn", conn, $("remember").checked ? localStorage : sessionStorage);
-    afterConnect();
-  };
-
-  async function afterConnect() {
-    const s = $("connStatus");
-    if (!conn.repo || !conn.token) { say(s, "Not connected."); return; }
-    say(s, "Checking…");
-    gh = GH.create(conn);
-    try {
-      say(s, "Connected to " + (await gh.check()) + " ✓", "ok");
-    } catch (e) {
-      say(s, "Couldn't connect: " + e.message, "err");
-      return;
-    }
-    const st = $("svcStatus");
-    if (!SVC) say(st, "Submissions service not set up yet: add submitUrl to config.js (README, step B).", "err");
-    else {
-      try {
-        const p = await (await svc("GET", "/admin/ping")).json();
-        aiOn = !!p.ai;
-        say(st, "Submissions service connected ✓" + (aiOn ? " · AI drafting on" : " · AI drafting off (add a Workers AI binding called AI to switch it on)"), "ok");
-      }
-      catch (e) { say(st, e.message, "err"); }
-    }
-    try {
-      lecturerFile = await gh.getJSON("keys/lecturer.json");
-    } catch (e) {
-      say($("lockMsg"), e.message || e.name, "err");
-    }
-    if (vault) return;
-    $("lock").hidden = false;
-    $("setup").hidden = !!lecturerFile;
-    $("unlock").hidden = !lecturerFile;
-    (lecturerFile ? $("pw") : $("p1")).focus();
-  }
-
-  // ---------- passphrase
-  $("createKey").onclick = () => busy($("createKey"), "Creating…", async () => {
-    const a = $("p1").value, b = $("p2").value, m = $("lockMsg");
-    if (a.length < 12) return say(m, "Use at least 12 characters.", "err");
-    if (a !== b) return say(m, "The two passphrases don't match.", "err");
-    try {
-      if (await gh.getJSON("keys/lecturer.json")) {
-        return say(m, "A marking key already exists for this site. Reload the page and unlock with your passphrase instead.", "err");
-      }
-      const k = await MS.createLecturerKeys(a);
-      index = { v: 1, activities: [] };
-      await gh.commit([
-        { path: "keys/lecturer.json", bytes: MS.fromJSON(k.file) },
-        { path: "keys/index.bin", bytes: await MS.seal(k.vk, MS.fromJSON(index)) },
-      ], "Set up marking key");
-      lecturerFile = k.file;
-      vault = k;
-      openApp();
-    } catch (e) {
-      say(m, "Couldn't save: " + (e.message || e.name || "unknown error"), "err");
-    }
-  });
-
-  $("unlock").onsubmit = (ev) => {
-    ev.preventDefault();
-    busy($("unlockBtn"), "Unlocking…", async () => {
-      try {
-        vault = await MS.unlockLecturer(lecturerFile, $("pw").value);
-      } catch {
-        return say($("lockMsg"), "That passphrase didn't work.", "err");
-      }
-      try {
-        index = await loadIndex();
-        openApp();
-      } catch (e) {
-        say($("lockMsg"), e.message || e.name, "err");
-      }
-    });
-  };
-
-  async function loadIndex() {
-    for (let attempt = 0; ; attempt++) {
-      const b = await gh.getFile("keys/index.bin");
-      if (!b) return { v: 1, activities: [] };
-      try {
-        return MS.toJSON(await MS.unseal(vault.vk, b));
-      } catch {
-        if (attempt === 0) { await new Promise((r) => setTimeout(r, 2500)); continue; } // GitHub can briefly serve an older copy
-        const fresh = confirm(
-          "Your saved activity list (keys/index.bin) can't be opened with this marking key.\n\n" +
-          "This happens when the marking passphrase was set up more than once. " +
-          "Start a new, empty activity list? Activities in the old list won't be shown here any more.");
-        if (fresh) return { v: 1, activities: [] };
-        throw new Error("The activity list couldn't be opened with this marking key.");
-      }
-    }
-  }
-  const indexEntry = async () => ({ path: "keys/index.bin", bytes: await MS.seal(vault.vk, MS.fromJSON(index)) });
+  const loadIndex = () => L.loadIndex();
+  const indexEntry = () => L.indexEntry(index);
   const publicMeta = (a) => ({ v: 1, created: a.created, deadline: a.deadline, late: a.late, closed: a.closed });
 
-  function openApp() {
-    $("pw").value = $("p1").value = $("p2").value = "";
-    $("lock").hidden = true;
-    $("conn").hidden = true;
+  async function start() {
+    L = await Lecturer.ready("marking");
+    ({ conn, gh, vault, svc } = L);
+    try {
+      index = await loadIndex();
+    } catch (e) {
+      document.querySelector("main").prepend(Lecturer.el("p", { class: "err", text: e.message || e.name }));
+      return;
+    }
     $("app").hidden = false;
     renderActs();
+    if (L.SVC) {
+      try { aiOn = !!(await (await svc("GET", "/admin/ping")).json()).ai; } catch (e) { $("sMsg").textContent = e.message; }
+    }
+    const m = location.hash.match(/^#a=([0-9a-f]{32})$/);
+    const want = m && index.activities.find((a) => a.id === m[1]);
+    if (want) openActivity(want);
   }
 
   // ---------- activities
@@ -376,7 +211,31 @@
     $("emptyMain").hidden = !$("newCard").hidden || !$("subsCard").hidden;
   }
 
-  $("newBtn").onclick = () => { $("newCard").hidden = false; updateEmpty(); $("newCard").scrollIntoView({ block: "start" }); $("aTitle").focus(); };
+  function fillModulePicker() {
+    const sel = $("aMod");
+    sel.length = 1;
+    for (const m of index.modules || []) sel.append(Lecturer.el("option", { value: m.id, text: `${m.short}: ${m.title}` }));
+    sel.onchange = () => {
+      const m = (index.modules || []).find((x) => x.id === sel.value);
+      const wk = $("aWeek");
+      wk.textContent = "";
+      wk.disabled = !m;
+      if (!m) return;
+      const cw = MS.currentWeek(m.start, m.weeks.length) || 1;
+      for (const w of m.weeks) wk.append(Lecturer.el("option", { value: w.n, text: `Week ${w.n}` + (w.title ? `: ${w.title}` : ""), selected: w.n === cw }));
+      if (!$("aModule").value) $("aModule").value = m.short;
+    };
+    sel.onchange();
+  }
+
+  $("newBtn").onclick = () => Lecturer.busy($("newBtn"), "", async () => {
+    try { index = await loadIndex(); renderActs(); } catch {}
+    fillModulePicker();
+    $("newCard").hidden = false;
+    updateEmpty();
+    $("newCard").scrollIntoView({ block: "start" });
+    $("aTitle").focus();
+  });
   $("cancelNew").onclick = () => { $("newCard").hidden = true; updateEmpty(); };
 
   const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -419,7 +278,17 @@
         say(m, "Publishing…");
         index = await loadIndex();
         index.activities.unshift(a);
+        const modEntries = [];
+        const mod = (index.modules || []).find((x) => x.id === $("aMod").value);
+        if (mod) {
+          const wk = Number($("aWeek").value) || 1;
+          mod.items.push({ id: MS.randHex(16), week: wk, kind: "activity", title: a.title, note: "", status: "published", at: null,
+            key: MS.b64e(MS.randKey()), files: [], activity: { id: a.id, code: a.code, title: a.title }, created: now, published: now,
+            order: mod.items.filter((i) => i.week === wk).length });
+          modEntries.push(...(await Lecturer.moduleEntries(mod)));
+        }
         await gh.commit([
+          ...modEntries,
           { path: `a/${d.id}/meta.json`, bytes: MS.fromJSON(publicMeta(a)) },
           { path: `a/${d.id}/m.bin`, bytes: await MS.seal(d.key, MS.fromJSON(forStudents)) },
           ...sheetEntries,
@@ -441,19 +310,9 @@
 
   // ---------- presenter
   function present(a, fresh) {
-    $("pTitle").textContent = [a.module, a.title].filter(Boolean).join(": ");
-    $("pHost").textContent = siteHost;
-    MS.tiles($("pCode"), a.code);
-    $("pSub").textContent = "to get the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "") + ".";
-    $("pNote").textContent = fresh ? "Live in about a minute while GitHub publishes it." : "";
-    $("present").hidden = false;
-    $("pCopy").textContent = "Copy link";
-    $("pCopy").onclick = async () => {
-      try { await navigator.clipboard.writeText(siteUrl.href + "#" + a.code); $("pCopy").textContent = "Copied ✓"; }
-      catch { $("pCopy").textContent = siteUrl.href + "#" + a.code; }
-    };
+    Lecturer.present({ title: [a.module, a.title].filter(Boolean).join(": "), code: a.code, fresh,
+      sub: "to get the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "") + "." });
   }
-  $("pClose").onclick = () => { $("present").hidden = true; };
   $("showCode").onclick = () => act && present(act);
 
   // ---------- submissions
@@ -1069,7 +928,7 @@
     }
   });
 
-  if (conn.repo && conn.token) afterConnect();
+  start();
 })();
 </script>
 </body>
