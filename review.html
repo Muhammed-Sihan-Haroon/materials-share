@@ -235,7 +235,7 @@
     try {
       lecturerFile = await gh.getJSON("keys/lecturer.json");
     } catch (e) {
-      say($("lockMsg"), e.message, "err");
+      say($("lockMsg"), e.message || e.name, "err");
     }
     if (vault) return;
     $("lock").hidden = false;
@@ -250,6 +250,9 @@
     if (a.length < 12) return say(m, "Use at least 12 characters.", "err");
     if (a !== b) return say(m, "The two passphrases don't match.", "err");
     try {
+      if (await gh.getJSON("keys/lecturer.json")) {
+        return say(m, "A marking key already exists for this site. Reload the page and unlock with your passphrase instead.", "err");
+      }
       const k = await MS.createLecturerKeys(a);
       index = { v: 1, activities: [] };
       await gh.commit([
@@ -260,7 +263,7 @@
       vault = k;
       openApp();
     } catch (e) {
-      say(m, "Couldn't save: " + e.message, "err");
+      say(m, "Couldn't save: " + (e.message || e.name || "unknown error"), "err");
     }
   });
 
@@ -276,14 +279,27 @@
         index = await loadIndex();
         openApp();
       } catch (e) {
-        say($("lockMsg"), e.message, "err");
+        say($("lockMsg"), e.message || e.name, "err");
       }
     });
   };
 
   async function loadIndex() {
-    const b = await gh.getFile("keys/index.bin");
-    return b ? MS.toJSON(await MS.unseal(vault.vk, b)) : { v: 1, activities: [] };
+    for (let attempt = 0; ; attempt++) {
+      const b = await gh.getFile("keys/index.bin");
+      if (!b) return { v: 1, activities: [] };
+      try {
+        return MS.toJSON(await MS.unseal(vault.vk, b));
+      } catch {
+        if (attempt === 0) { await new Promise((r) => setTimeout(r, 2500)); continue; } // GitHub can briefly serve an older copy
+        const fresh = confirm(
+          "Your saved activity list (keys/index.bin) can't be opened with this marking key.\n\n" +
+          "This happens when the marking passphrase was set up more than once. " +
+          "Start a new, empty activity list? Activities in the old list won't be shown here any more.");
+        if (fresh) return { v: 1, activities: [] };
+        throw new Error("The activity list couldn't be opened with this marking key.");
+      }
+    }
   }
   const indexEntry = async () => ({ path: "keys/index.bin", bytes: await MS.seal(vault.vk, MS.fromJSON(index)) });
   const publicMeta = (a) => ({ v: 1, created: a.created, deadline: a.deadline, late: a.late, closed: a.closed });
@@ -374,7 +390,7 @@
         present(a, true);
         openActivity(a);
       } catch (e) {
-        say(m, "Couldn't create: " + e.message, "err");
+        say(m, "Couldn't create: " + (e.message || e.name || "unknown error"), "err");
       }
     });
   };
@@ -439,7 +455,7 @@
       say(m, "");
       renderSubs();
     } catch (e) {
-      say(m, e.message, "err");
+      say(m, e.message || e.name, "err");
     }
   }
 
@@ -500,7 +516,7 @@
       renderActs();
       renderSubs();
     } catch (e) {
-      say($("sMsg"), e.message, "err");
+      say($("sMsg"), e.message || e.name, "err");
     }
   }).then(() => {
     $("toggleClose").textContent = act.closed ? "Reopen submissions" : "Close submissions";
@@ -797,7 +813,7 @@
       fillForm(d);
       renderSubs();
     } catch (e) {
-      say($("fStatus"), e.message, "err");
+      say($("fStatus"), e.message || e.name, "err");
     }
   }
 
@@ -813,7 +829,7 @@
       fillForm(d);
       renderSubs();
     } catch (e) {
-      say($("fStatus"), e.message, "err");
+      say($("fStatus"), e.message || e.name, "err");
     }
   });
 
@@ -839,7 +855,7 @@
       }
       say(m, `Released ${todo.length} ✓`, "ok");
     } catch (e) {
-      say(m, e.message, "err");
+      say(m, e.message || e.name, "err");
     }
     renderSubs();
   });
@@ -866,7 +882,7 @@
       const csv = "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
       download(new Blob([csv], { type: "text/csv" }), safeName(`${act.module} ${act.title} feedback`) + ".csv");
     } catch (e) {
-      say($("sMsg"), e.message, "err");
+      say($("sMsg"), e.message || e.name, "err");
     }
   });
 
