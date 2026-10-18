@@ -201,7 +201,10 @@
     }
     if (a && a.ok) {
       const meta = await a.json();
-      return { kind: "activity", id: d.id, meta, brief: toJSON(await bin(`a/${d.id}/m.bin`)) };
+      return {
+        kind: "activity", id: d.id, meta, brief: toJSON(await bin(`a/${d.id}/m.bin`)),
+        file: (fl) => bin(`a/${d.id}/${fl.f}`),
+      };
     }
     if (f && f.ok) return { kind: "feedback", feedback: toJSON(await unseal(d.key, await f.arrayBuffer())) };
     return { kind: "none" };
