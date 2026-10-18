@@ -4,12 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Lecturer · Class Materials</title>
+<title>Materials · Class Materials</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="wrap">
-  <header><span id="site">Class Materials</span><span class="links"><a href="review.html">Activities &amp; marking</a><a href="./">Student page</a></span></header>
+<header class="topbar"><div class="wrap wide topbar-in">
+  <a class="brand" href="./"><span class="mark" id="mark" aria-hidden="true"></span><span><b id="site">Class Materials</b><small id="sub" hidden></small></span></a>
+  <nav class="nav" aria-label="Lecturer pages"><a href="admin.html" aria-current="page">Materials</a><a href="review.html">Activities &amp; marking</a></nav>
+  <a class="bar-end" href="./">Student page</a>
+</div></header>
+<main class="wrap wide" style="max-width:1000px">
+  <h1 style="margin-bottom:18px">Materials</h1>
 
   <div class="card" id="conn">
     <h2>GitHub connection</h2>
@@ -20,13 +28,13 @@
     <label for="token">Access token</label>
     <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
     <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
-    <p class="muted">Use a fine-grained token limited to this one repository with <b>Contents: Read and write</b>. It is only ever sent to api.github.com.</p>
-    <button class="btn" id="connect">Connect</button>
-    <span id="connStatus" class="muted" style="margin-left:8px"></span>
+    <p class="hint">Use a fine-grained token limited to this one repository with <b>Contents: Read and write</b>. It is only ever sent to api.github.com.</p>
+    <p class="actions" style="margin-top:14px"><button class="btn" id="connect">Connect</button>
+    <span id="connStatus" class="muted"></span></p>
   </div>
 
   <div class="card">
-    <h2>New share</h2>
+    <h2>Share new materials</h2>
     <form id="form">
       <div class="grid">
         <div><label for="title">Title</label><input id="title" required maxlength="120" placeholder="Week 3 — SQL Joins"></div>
@@ -40,31 +48,29 @@
       </div>
       <label for="files">Files</label>
       <input id="files" type="file" multiple required>
-      <p class="muted">Up to 50 MB per file. Files are encrypted on this computer before upload.</p>
-      <button class="btn" id="create">Encrypt, upload &amp; create code</button>
+      <p class="hint">Up to 50 MB per file. Files are encrypted on this computer before they're uploaded.</p>
+      <p style="margin-top:16px"><button class="btn" id="create">Encrypt, upload &amp; create code</button></p>
       <p class="muted" id="progress"></p>
     </form>
   </div>
 
   <div class="card">
-    <h2>Shares created on this device</h2>
+    <h2>Materials shared from this device</h2>
     <div id="list"></div>
   </div>
-</div>
+</main>
 
 <div class="overlay" id="present" hidden>
-  <p class="muted" id="pTitle" style="font-size:1.3rem"></p>
+  <p class="ptitle" id="pTitle"></p>
   <p class="step">Go to</p>
   <div class="url" id="pHost"></div>
   <p class="step">and enter</p>
   <div class="big" id="pCode"></div>
-  <p class="muted" style="margin-top:20px">or open <span class="mono" id="pLink"></span></p>
+  <p class="muted" style="margin-top:3vh" id="pSubLine">Or open <span class="mono" id="pLink"></span></p>
   <p class="muted" id="pNote"></p>
-  <p style="margin-top:32px" class="actions" >
-    <span style="margin:0 auto" class="actions">
-      <button class="btn ghost" id="copy">Copy link</button>
-      <button class="btn" id="close">Back to dashboard</button>
-    </span>
+  <p class="actions" style="justify-content:center;margin-top:4vh">
+    <button class="btn ghost" id="copy">Copy link</button>
+    <button class="btn" id="close">Back to dashboard</button>
   </p>
 </div>
 
@@ -77,8 +83,8 @@
   const siteUrl = new URL("./", location.href);
   const siteHost = (siteUrl.host + siteUrl.pathname).replace(/\/$/, "");
 
-  document.title = "Lecturer · " + SITE.name;
-  $("site").textContent = SITE.name + " · Lecturer";
+  document.title = "Materials · " + SITE.name;
+  MS.brand();
 
   // ---------- storage (wrapped: may be unavailable)
   const store = {
@@ -282,9 +288,9 @@
 
   // ---------- presenter
   function present(s, fresh) {
-    $("pTitle").textContent = [s.module, s.title].filter(Boolean).join(" · ");
+    $("pTitle").textContent = [s.module, s.title].filter(Boolean).join(": ");
     $("pHost").textContent = siteHost;
-    $("pCode").textContent = MS.pretty(s.code);
+    MS.tiles($("pCode"), s.code);
     $("pLink").textContent = siteHost + "/#" + s.code;
     $("pNote").textContent = fresh ? "Live in about a minute while GitHub publishes it." : "";
     $("present").hidden = false;
