@@ -91,6 +91,9 @@ http.createServer(async (req, res) => {
   for (const [k, v] of Object.entries(req.headers)) if (!SKIP.has(k)) headers.set(k, Array.isArray(v) ? v.join(",") : v);
   const init = { method: req.method, headers };
   if (!["GET", "HEAD"].includes(req.method) && body.length) { init.body = body; init.duplex = "half"; }
+  // optional slow responses, to reproduce timing seen on slower CI machines
+  const slow = Number(process.env.SLOW_MS || 0);
+  if (slow && req.url.startsWith("/admin/")) await new Promise((r) => setTimeout(r, slow));
   const r = await worker.fetch(new Request("http://localhost:8787" + req.url, init), env);
   const out = Buffer.from(await r.arrayBuffer());
   res.writeHead(r.status, Object.fromEntries(r.headers));
