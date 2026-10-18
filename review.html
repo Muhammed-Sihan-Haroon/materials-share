@@ -5,15 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Activities &amp; marking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="wrap wide">
-  <header><span id="site">Activities &amp; marking</span>
-    <span class="links"><a href="admin.html">Materials</a><a href="./">Student page</a></span></header>
+<header class="topbar"><div class="wrap wide topbar-in">
+  <a class="brand" href="./"><span class="mark" id="mark" aria-hidden="true"></span><span><b id="site">Class Materials</b><small id="sub" hidden></small></span></a>
+  <nav class="nav" aria-label="Lecturer pages"><a href="admin.html">Materials</a><a href="review.html" aria-current="page">Activities &amp; marking</a></nav>
+  <a class="bar-end" href="./">Student page</a>
+</div></header>
+<main class="wrap wide">
 
   <!-- connection -->
-  <div class="card" id="conn">
+  <div class="card narrow" id="conn" style="max-width:640px">
     <h2>GitHub connection</h2>
     <div class="grid">
       <div><label for="repo">Repository (owner/name)</label><input id="repo" placeholder="your-username/materials"></div>
@@ -22,8 +28,8 @@
     <label for="token">Access token</label>
     <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
     <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
-    <button class="btn" id="connect">Connect</button>
-    <span id="connStatus" class="muted" style="margin-left:8px"></span>
+    <p class="actions" style="margin-top:14px"><button class="btn" id="connect">Connect</button>
+    <span id="connStatus" class="muted"></span></p>
     <p class="muted" id="svcStatus"></p>
   </div>
 
@@ -31,7 +37,7 @@
   <div class="card narrow" id="lock" hidden>
     <div id="setup" hidden>
       <h2>Create your marking passphrase</h2>
-      <p class="muted">Student work is encrypted so that only this passphrase can open it. Pick one you won't forget — <b>if it's lost, submissions can't be recovered</b> by anyone.</p>
+      <p class="muted">Student work is encrypted so that only this passphrase can open it. Pick one you won't forget: <b>if it's lost, nobody can recover the submissions</b>. Four or five random words work well.</p>
       <label for="p1">Passphrase (at least 12 characters)</label>
       <input type="password" id="p1" autocomplete="new-password">
       <label for="p2">Repeat passphrase</label>
@@ -47,11 +53,17 @@
     <p id="lockMsg" class="muted"></p>
   </div>
 
-  <div id="app" hidden>
-    <!-- activities -->
-    <div class="card">
-      <div class="row"><h2>Activities</h2><button class="btn small" id="newBtn">New activity</button></div>
-      <div id="acts"></div>
+  <div id="app" class="shell" hidden>
+    <aside class="side">
+      <div class="card">
+        <div class="row" style="align-items:center"><h2 style="margin:0">Activities</h2><button class="btn small" id="newBtn">New activity</button></div>
+        <div id="acts" class="acts"></div>
+      </div>
+    </aside>
+
+    <div class="main">
+    <div class="card" id="emptyMain">
+      <div class="empty"><b>Choose an activity</b>Pick one on the left to see its submissions, or create a new one.</div>
     </div>
 
     <div class="card" id="newCard" hidden>
@@ -108,7 +120,7 @@
       <div class="card">
         <div class="row">
           <div><h2 id="rName" style="margin:0"></h2><p class="muted" id="rInfo" style="margin:4px 0 0"></p></div>
-          <div class="actions"><button class="btn ghost small" id="prev">← Previous</button><button class="btn ghost small" id="next">Next →</button></div>
+          <div class="actions"><button class="btn ghost small" id="prev">Previous</button><button class="btn ghost small" id="next">Next</button></div>
         </div>
         <div class="brief muted" id="rNote" hidden></div>
         <div class="tabs" id="rTabs"></div>
@@ -137,18 +149,19 @@
         <p class="muted" id="fStatus"></p>
       </div>
     </div>
+    </div>
   </div>
-</div>
+</main>
 
 <div class="overlay" id="present" hidden>
-  <p class="muted" id="pTitle" style="font-size:1.3rem"></p>
+  <p class="ptitle" id="pTitle"></p>
   <p class="step">Go to</p>
   <div class="url" id="pHost"></div>
   <p class="step">and enter</p>
   <div class="big" id="pCode"></div>
-  <p class="muted" style="margin-top:20px" id="pSub"></p>
+  <p class="muted" style="margin-top:3vh;font-size:1.1rem" id="pSub"></p>
   <p class="muted" id="pNote"></p>
-  <p class="actions" style="justify-content:center;margin-top:32px">
+  <p class="actions" style="justify-content:center;margin-top:4vh">
     <button class="btn ghost" id="pCopy">Copy link</button>
     <button class="btn" id="pClose">Back</button>
   </p>
@@ -170,7 +183,7 @@
   const TEXT = /\.(txt|md|py|java|js|mjs|ts|jsx|tsx|html?|css|scss|json|sql|xml|ya?ml|c|h|cpp|hpp|cs|php|rb|go|rs|kt|swift|sh|bat|ps1|r|csv|tsv|log|ini|cfg|toml|env|gitignore|dockerfile)$/i;
 
   document.title = "Activities & marking · " + SITE.name;
-  $("site").textContent = SITE.name + " · Activities & marking";
+  MS.brand();
 
   const store = {
     get(k, s) { try { return JSON.parse((s || localStorage).getItem(k)); } catch { return null; } },
@@ -340,37 +353,31 @@
     const box = $("acts");
     box.textContent = "";
     if (!index.activities.length) {
-      box.innerHTML = '<p class="muted">No activities yet. Create one and show its code in class; students submit with it.</p>';
+      box.innerHTML = '<p class="muted" style="margin:8px 2px">No activities yet. Create one, show its code in class, and students hand in with it.</p>';
       return;
     }
-    const t = document.createElement("table");
-    t.innerHTML = "<tr><th>Code</th><th>Activity</th><th>Due</th><th>Status</th><th></th></tr>";
     for (const a of index.activities) {
-      const tr = document.createElement("tr");
-      tr.className = "click" + (act && act.id === a.id ? " sel" : "");
-      const cells = [MS.pretty(a.code), [a.module, a.title].filter(Boolean).join(" · "), a.deadline ? MS.fmtDate(a.deadline) : "—"];
-      cells.forEach((v, i) => {
-        const td = document.createElement("td");
-        td.textContent = v;
-        if (i === 0) td.className = "mono";
-        tr.append(td);
-      });
-      const st = document.createElement("td");
-      st.append(stateChip(a));
-      const go = document.createElement("td");
       const b = document.createElement("button");
-      b.className = "btn small";
-      b.textContent = "Submissions";
-      go.append(b);
-      tr.append(st, go);
-      tr.onclick = () => openActivity(a);
-      t.append(tr);
+      b.type = "button";
+      b.className = "act" + (act && act.id === a.id ? " on" : "");
+      const t = document.createElement("span");
+      t.className = "ttl";
+      t.textContent = a.title;
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = [a.module, MS.pretty(a.code), a.deadline ? "due " + MS.fmtDate(a.deadline) : ""].filter(Boolean).join(", ");
+      b.append(t, stateChip(a), sub);
+      b.onclick = () => openActivity(a);
+      box.append(b);
     }
-    box.append(t);
   }
 
-  $("newBtn").onclick = () => { $("newCard").hidden = false; $("aTitle").focus(); };
-  $("cancelNew").onclick = () => { $("newCard").hidden = true; };
+  function updateEmpty() {
+    $("emptyMain").hidden = !$("newCard").hidden || !$("subsCard").hidden;
+  }
+
+  $("newBtn").onclick = () => { $("newCard").hidden = false; updateEmpty(); $("newCard").scrollIntoView({ block: "start" }); $("aTitle").focus(); };
+  $("cancelNew").onclick = () => { $("newCard").hidden = true; updateEmpty(); };
 
   const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
 
@@ -421,6 +428,7 @@
         $("newForm").reset();
         $("aLate").checked = $("aShowCrit").checked = true;
         $("newCard").hidden = true;
+        updateEmpty();
         say(m, "");
         renderActs();
         present(a, true);
@@ -433,10 +441,10 @@
 
   // ---------- presenter
   function present(a, fresh) {
-    $("pTitle").textContent = [a.module, a.title].filter(Boolean).join(" · ");
+    $("pTitle").textContent = [a.module, a.title].filter(Boolean).join(": ");
     $("pHost").textContent = siteHost;
-    $("pCode").textContent = MS.pretty(a.code);
-    $("pSub").textContent = "to see the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "");
+    MS.tiles($("pCode"), a.code);
+    $("pSub").textContent = "to get the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "") + ".";
     $("pNote").textContent = fresh ? "Live in about a minute while GitHub publishes it." : "";
     $("present").hidden = false;
     $("pCopy").textContent = "Copy link";
@@ -455,6 +463,8 @@
     cur = null;
     $("review").hidden = true;
     $("subsCard").hidden = false;
+    $("newCard").hidden = true;
+    updateEmpty();
     $("sMod").textContent = a.module || "";
     $("sTitle").textContent = a.title;
     $("toggleClose").textContent = a.closed ? "Reopen submissions" : "Close submissions";
@@ -508,8 +518,8 @@
   function renderSubs() {
     const released = subs.filter((s) => s.draft && s.draft.rel).length;
     const st = MS.activityState(act);
-    $("sInfo").textContent = `${subs.length} submission${subs.length === 1 ? "" : "s"} · ${released} released · ` +
-      (act.deadline ? "due " + MS.fmtDate(act.deadline) + " · " : "") + ({ open: "open", late: "open for late work", closed: "closed" })[st];
+    $("sInfo").textContent = `${subs.length} submission${subs.length === 1 ? "" : "s"}, ${released} released. ` +
+      (act.deadline ? "Due " + MS.fmtDate(act.deadline) + ", " : "") + ({ open: "open", late: "open for late work", closed: "closed" })[st] + ".";
     const box = $("subs");
     box.textContent = "";
     if (!subs.length) {
@@ -569,7 +579,7 @@
     renderSubs();
     $("review").hidden = false;
     $("rName").textContent = s.info.name;
-    $("rInfo").textContent = [s.info.sid, "submitted " + MS.fmtDate(s.info.t), s.late ? "late" : "", s.earlier ? "earlier attempt" : ""].filter(Boolean).join(" · ");
+    $("rInfo").textContent = [s.info.sid, "submitted " + MS.fmtDate(s.info.t), s.late ? "late" : "", s.earlier ? "earlier attempt" : ""].filter(Boolean).join(", ");
     $("rTabs").textContent = "";
     $("rNote").hidden = true;
     setPreviewNote("Decrypting…");
