@@ -5,21 +5,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Class Materials</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="wrap">
-  <header><span id="site">Class Materials</span></header>
+<header class="topbar"><div class="wrap topbar-in">
+  <a class="brand" href="./"><span class="mark" id="mark" aria-hidden="true"></span><span><b id="site">Class Materials</b><small id="sub" hidden></small></span></a>
+</div></header>
 
+<main class="wrap">
   <!-- code entry -->
   <div id="home">
-    <div class="card narrow">
-      <h1 class="center">Enter your code</h1>
-      <p class="muted center">Materials, activity or receipt code from your lecturer.</p>
+    <div class="hero">
+      <h1>Enter your code</h1>
+      <p class="lead">Type the code your lecturer gives you. It's 8 letters and numbers, and it works for class materials, activities and feedback receipts.</p>
       <form id="form">
         <input class="code-input" id="code" maxlength="12" autocomplete="off" autocapitalize="characters"
                spellcheck="false" placeholder="ABCD-2345" aria-label="Code" required>
-        <p class="err center" id="err" hidden></p>
+        <p class="err" id="err" hidden></p>
         <button class="btn full" id="go">Open</button>
       </form>
     </div>
@@ -35,7 +40,7 @@
     <h1 id="title"></h1>
     <p class="muted" id="info"></p>
     <div class="files" id="files"></div>
-    <button class="btn" id="all" hidden>Download all (.zip)</button>
+    <button class="btn" id="all" hidden>Download all as a zip</button>
     <p class="muted" style="margin-top:20px"><a href="./">Enter another code</a></p>
   </div>
 
@@ -47,16 +52,16 @@
       <p class="muted" id="aDue"></p>
       <div class="brief" id="aBrief"></div>
       <div id="aFiles" hidden>
-        <h2 style="margin-top:16px">Worksheet &amp; files</h2>
+        <h2 style="margin-top:20px">Worksheet and files</h2>
         <div class="files" id="aFileList"></div>
       </div>
       <div id="aCrit" hidden>
-        <h2 style="margin-top:16px">What your lecturer is looking for</h2>
+        <h2 style="margin-top:20px">What your lecturer is looking for</h2>
         <ul class="list-plain" id="aCritList"></ul>
       </div>
     </div>
     <div class="card">
-      <h2>Submit your work</h2>
+      <h2>Hand in your work</h2>
       <p class="err" id="aClosed" hidden></p>
       <form id="subForm">
         <div class="grid">
@@ -65,11 +70,11 @@
         </div>
         <label for="sFiles">Files</label>
         <input id="sFiles" type="file" multiple required>
-        <p class="muted" id="sFilesInfo">Up to 20 MB in total.</p>
+        <p class="hint" id="sFilesInfo">Up to 20 MB in total.</p>
         <label for="sNote">Note to your lecturer (optional)</label>
         <textarea id="sNote" maxlength="1000" style="min-height:70px"></textarea>
-        <p class="muted">Your work is encrypted on this device before it's sent. Only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
-        <button class="btn" id="subBtn">Submit</button>
+        <p class="hint" style="margin:14px 0 16px">Your work is encrypted on this device before it's sent, and only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
+        <button class="btn" id="subBtn">Hand in</button>
         <div class="bar" id="bar" hidden><span id="barFill"></span></div>
         <p id="subMsg" class="muted"></p>
       </form>
@@ -79,16 +84,16 @@
 
   <!-- receipt -->
   <div class="card narrow" id="receipt" hidden>
-    <h1 class="center ok">Submitted ✓</h1>
-    <p class="center muted" id="rWhat"></p>
-    <p class="center" style="margin-top:20px">Your receipt code</p>
-    <div class="big center" style="font-size:clamp(2.2rem,10vw,3.2rem)" id="rCode"></div>
-    <p class="center muted">Enter this code here later to read your feedback. Keep it private: anyone with it can read your feedback.</p>
-    <p class="center actions" style="justify-content:center">
+    <h1 class="ok">Handed in</h1>
+    <p class="muted" id="rWhat"></p>
+    <h2 style="margin-top:22px">Your receipt code</h2>
+    <div class="receipt-code" id="rCode"></div>
+    <p class="muted">Enter this code here later to read your feedback. Keep it private, because anyone with it can read your feedback.</p>
+    <p class="actions" style="margin-top:16px">
       <button class="btn ghost" id="rCopy">Copy code</button>
       <button class="btn ghost" id="rSave">Save receipt</button>
     </p>
-    <p class="center muted" style="margin-top:16px"><a href="./">Done</a></p>
+    <p class="muted" style="margin-top:18px"><a href="./">Done</a></p>
   </div>
 
   <!-- feedback -->
@@ -97,16 +102,16 @@
       <p class="muted" id="fMod"></p>
       <h1 id="fTitle"></h1>
       <p class="muted" id="fInfo"></p>
-      <div id="fMarkWrap" hidden style="margin-top:12px"><span class="mark" id="fMark"></span></div>
+      <div id="fMarkWrap" hidden><div class="mark-big" id="fMark"></div></div>
       <div id="fCrit" style="margin-top:12px"></div>
       <div id="fCommentWrap" hidden>
-        <h2 style="margin-top:20px">Comments</h2>
+        <h2 style="margin-top:22px">Comments</h2>
         <div class="brief" id="fComment"></div>
       </div>
     </div>
     <p class="muted"><a href="./">Enter another code</a></p>
   </div>
-</div>
+</main>
 
 <script src="config.js"></script>
 <script src="shared.js"></script>
@@ -120,7 +125,7 @@
   let current = null;
 
   document.title = SITE.name;
-  $("site").textContent = SITE.name;
+  MS.brand();
 
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -148,11 +153,11 @@
       t.textContent = r.title;
       const m = document.createElement("div");
       m.className = "muted";
-      m.textContent = MS.fmtDate(r.t) + " · " + MS.pretty(r.code);
+      m.textContent = MS.fmtDate(r.t) + ", receipt " + MS.pretty(r.code);
       left.append(t, m);
       const b = document.createElement("button");
       b.className = "btn ghost small";
-      b.textContent = "Feedback";
+      b.textContent = "Check feedback";
       b.onclick = () => { $("code").value = MS.pretty(r.code); load(r.code); };
       row.append(left, b);
       box.append(row);
@@ -194,7 +199,7 @@
     document.title = m.title;
     const n = m.files.length;
     let info = n + " file" + (n === 1 ? "" : "s");
-    if (current.meta.expires) info += " · available until " + MS.fmtDate(current.meta.expires);
+    if (current.meta.expires) info += ", available until " + MS.fmtDate(current.meta.expires);
     $("info").textContent = info;
     const box = $("files");
     box.textContent = "";
@@ -259,7 +264,7 @@
       btn.textContent = "Zipping…";
       const blob = await zip.generateAsync({ type: "blob" });
       download(blob, (current.manifest.title.replace(/[^\w\- ]+/g, "").trim() || "materials") + ".zip");
-      btn.textContent = "Download all (.zip) ✓";
+      btn.textContent = "Downloaded ✓";
     } catch (e) {
       btn.textContent = "Couldn't build the zip — download files one by one";
     } finally {
@@ -300,7 +305,7 @@
     $("aFiles").hidden = !(b.files && b.files.length);
     const state = MS.activityState(current.meta);
     const due = current.meta.deadline ? "Due " + MS.fmtDate(current.meta.deadline) : "No deadline";
-    $("aDue").textContent = state === "late" ? due + " · late submissions are accepted but marked late" : due;
+    $("aDue").textContent = state === "late" ? due + ". Late work is still accepted but marked as late." : due;
     let closed = "";
     if (!SVC) closed = "Online submission isn't set up for this site yet. Ask your lecturer how to hand in.";
     else if (state === "closed") closed = "Submissions for this activity are closed.";
@@ -389,8 +394,8 @@
 
   function showReceipt(code, name, files, t) {
     show("receipt");
-    $("rCode").textContent = MS.pretty(code);
-    $("rWhat").textContent = `${current.brief.title} · ${files.length} file${files.length === 1 ? "" : "s"} · ${MS.fmtDate(t)}`;
+    MS.tiles($("rCode"), code);
+    $("rWhat").textContent = `${current.brief.title}: ${files.length} file${files.length === 1 ? "" : "s"} handed in on ${MS.fmtDate(t)}.`;
     $("rCopy").textContent = "Copy code";
     $("rCopy").onclick = async () => {
       try { await navigator.clipboard.writeText(MS.pretty(code)); $("rCopy").textContent = "Copied ✓"; } catch { $("rCopy").textContent = MS.pretty(code); }
@@ -415,7 +420,7 @@
     document.title = "Feedback · " + fb.activity;
     $("fMod").textContent = fb.module || "";
     $("fTitle").textContent = fb.activity;
-    $("fInfo").textContent = `Feedback for ${fb.name} · released ${MS.fmtDate(fb.released)}`;
+    $("fInfo").textContent = `Feedback for ${fb.name}, released ${MS.fmtDate(fb.released)}`;
     const hasMark = fb.mark !== null && fb.mark !== undefined && fb.mark !== "";
     $("fMarkWrap").hidden = !hasMark;
     $("fMark").textContent = hasMark ? (fb.outOf ? `${fb.mark} / ${fb.outOf}` : String(fb.mark)) : "";
@@ -441,6 +446,13 @@
   $("form").onsubmit = (e) => { e.preventDefault(); load($("code").value); };
 
   renderMine();
+  window.addEventListener("hashchange", () => {
+    const h = location.hash.slice(1);
+    if (!h) return location.reload();
+    $("code").value = MS.pretty(MS.normalise(h));
+    show("home");
+    load(h);
+  });
   if (location.hash.length > 1) {
     $("code").value = MS.pretty(MS.normalise(location.hash.slice(1)));
     load(location.hash.slice(1));
