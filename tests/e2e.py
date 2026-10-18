@@ -106,10 +106,45 @@ def fake_github(route, request):
     return route.fulfill(status=500, json={"message": "unmocked " + path})
 
 ok = True
+results = []          # (passed, label)
+IN_CI = os.environ.get("GITHUB_ACTIONS") == "true"
+
 def check(cond, label):
     global ok
-    print(("PASS " if cond else "FAIL ") + label)
-    ok &= bool(cond)
+    passed = bool(cond)
+    print(("PASS " if passed else "FAIL ") + label, flush=True)
+    if label:
+        results.append((passed, label))
+    if not passed and IN_CI:
+        print(f"::error title=Check failed::{label}", flush=True)   # shows on the run's summary page
+    ok &= passed
+
+def report():
+    """Write a pass/fail table to the GitHub Actions run summary."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    failed = [l for p, l in results if not p]
+    with open(path, "a") as f:
+        f.write(f"## End-to-end tests: {sum(p for p, _ in results)} passed, {len(failed)} failed\n\n")
+        if failed:
+            f.write("**Failed:**\n\n" + "".join(f"- {l}\n" for l in failed) + "\n")
+        if results:
+            f.write(f"Last check that ran: {results[-1][1]}\n")
+
+def crashed(kind, err, tb):
+    """An exception (e.g. a timeout) stopped the run: say where, on the summary page."""
+    import traceback
+    traceback.print_exception(kind, err, tb)
+    last = results[-1][1] if results else "(none)"
+    msg = str(err).splitlines()[0][:300] if str(err) else kind.__name__
+    if IN_CI:
+        frame = traceback.extract_tb(tb)[-1] if tb else None
+        where = next((fr for fr in reversed(traceback.extract_tb(tb)) if fr.filename.endswith("e2e.py")), frame)
+        print(f"::error file=tests/e2e.py,line={where.lineno if where else 1},title=Tests stopped::{kind.__name__}: {msg} (after: {last})", flush=True)
+    results.append((False, f"Stopped with {kind.__name__}: {msg} (after: {last})"))
+    report()
+sys.excepthook = crashed
 
 def http(method, path, headers=None, body=None):
     req = urllib.request.Request("http://localhost:8787" + path, data=body, method=method, headers=headers or {})
@@ -443,11 +478,16 @@ with sync_playwright() as p:
     M.wait_for_selector("#present:not([hidden])", timeout=30000)
     mcode = M.text_content("#pCode"); mid = code_id(mcode)
     M.click("#pClose")
+    saves = [int(M.get_attribute("#vSave", "data-saved") or 0)]
+    def wait_saved():
+        """Wait for the next save to finish (not just for the word 'Saved', which may be left over from the last one)."""
+        saves[0] += 1
+        M.wait_for_function(f"Number(document.querySelector('#vSave').dataset.saved || 0) >= {saves[0]}", timeout=30000)
     check(os.path.exists(f"{SITE}/m/{mid}/meta.json") and b"QHO444" not in open(f"{SITE}/m/{mid}/index.bin", "rb").read(), "module published, index encrypted")
     check("It's week 3 now" in M.text_content("#vMeta"), "lecturer sees the current week")
     wk3 = 'section[data-week="3"]'
     M.set_input_files(f'{wk3} input[type=file]', [FD + "/slides.pdf", FD + "/Week3_worksheet.docx", FD + "/Week3_answers.py"])
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     rows3 = M.text_content(wk3)
     check(rows3.count("Draft") >= 3 and "Worksheet" in rows3 and "Answers" in rows3 and "Material" in rows3, "dropped files become drafts with guessed types")
     raw_files = b"".join(open(os.path.join(SITE, "m", mid, "f", f), "rb").read() for f in os.listdir(os.path.join(SITE, "m", mid, "f")))
@@ -458,13 +498,13 @@ with sync_playwright() as p:
     check("Nothing has been published" in St.text_content("#mWeeks"), "students can't see drafts")
 
     M.click(f'{wk3} .item:has-text("slides") button:has-text("Publish")')
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     M.click(f'{wk3} .item:has-text("Week3 worksheet") button:has-text("Publish")')
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     future = (_dt.datetime.now() + _dt.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
     M.click(f'{wk3} .item:has-text("Week3 answers") button:has-text("Edit")')
     M.check('input[name="vis"][value="scheduled"]'); M.fill("#dAt", future); M.click("#dSave")
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     check("Opens" in M.text_content(f'{wk3} .item:has-text("Week3 answers")'), "answers scheduled")
 
     St.reload(); St.wait_for_selector("#module:not([hidden])", timeout=20000)
@@ -483,7 +523,7 @@ with sync_playwright() as p:
     past = (_dt.datetime.now() - _dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
     M.click(f'{wk3} .item:has-text("Week3 answers") button:has-text("Edit")')
     M.fill("#dAt", past); M.click("#dSave")
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     St.reload(); St.wait_for_selector("#module:not([hidden])", timeout=20000)
     with St.expect_download() as dl:
         St.click('#mWeeks .item:has-text("answers") .files button')
@@ -496,15 +536,15 @@ with sync_playwright() as p:
     # move an item to week 4 via the editor, unpublish, delete
     M.click(f'{wk3} .item:has-text("slides") button:has-text("Edit")')
     M.select_option("#dWeek", "4"); M.click("#dSave")
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     check("slides" in M.text_content('section[data-week="4"]') and "slides" not in M.text_content(wk3), "item moved to week 4")
     M.click(f'{wk3} .item:has-text("Week3 worksheet") button:has-text("Unpublish")')
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     St.reload(); St.wait_for_selector("#module:not([hidden])", timeout=20000)
     check("worksheet" not in St.text_content("#mWeeks").lower(), "unpublished item disappears for students")
     nfiles = len(os.listdir(os.path.join(SITE, "m", mid, "f")))
     M.click(f'{wk3} .item:has-text("Week3 worksheet") button:has-text("Delete")')
-    M.wait_for_function("document.querySelector('#vSave').textContent.includes('Saved')", timeout=30000)
+    wait_saved()
     check(len(os.listdir(os.path.join(SITE, "m", mid, "f"))) == nfiles - 1, "deleting removes the file from the repo")
     M.fill("#vSearch", "answers")
     check(M.locator("#weeks section").count() == 1, "lecturer search filters weeks")
@@ -587,4 +627,5 @@ with sync_playwright() as p:
     b.close()
 
 print("ALL PASS" if ok else "SOME FAILED")
+report()
 sys.exit(0 if ok else 1)
