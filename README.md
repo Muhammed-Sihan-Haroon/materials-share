@@ -62,6 +62,15 @@ Students then go to `get.yourdomain.com`.
 - **You** open the activity, click a submission to preview it (PDF, Word, images, code, notebooks, zip listings), tick *Met / Partly met / Not yet* per criterion, add a mark and comments (click quick comments to insert them), then **Save draft** or **Save & release**. *Release all drafts* and *Export CSV* work per activity.
 - **Students** enter their receipt code to read released feedback. *Withdraw* hides it again.
 
+### Worksheets, model answers and AI drafts
+
+- When you create an activity you can attach **worksheet files** (students download them from the activity page) and a **model answer or marking notes** (typed, or a Word/PDF/text file). The model answer is only ever seen by you and the AI checker.
+- **AI draft all new** (or **Draft with AI** on one submission) reads each submission in your browser — Word, PDF, PowerPoint, Excel, notebooks, code, zips of code — and asks Cloudflare Workers AI to draft criteria judgements, a mark and formative comments against your criteria and model answer.
+- Drafts are marked **AI draft** with the AI's one-line reason under each criterion (only you see the reasons). **Nothing reaches students until you release it.** Editing and saving a draft marks it as reviewed; *Release all drafts* warns you if any AI drafts haven't been edited.
+- Images and scanned PDFs can't be read by the checker — look at those yourself.
+- Free allowance: Workers AI includes 10,000 "neurons" a day, enough for roughly 50 drafts; it resets at 00:00 UTC. Set an `AI_MODEL` variable on the worker to try another model.
+- Student work is sent as text to Workers AI only when you click an AI button; the student submit page tells students an AI tool may help draft feedback.
+
 ### Privacy
 
 - Submissions are encrypted in the student's browser with your **public key**; only your **marking passphrase** can open them. The passphrase-protected private key lives in `keys/lecturer.json` in the repo. **If you forget the passphrase, submissions can't be recovered.**
@@ -77,7 +86,7 @@ Students then go to `get.yourdomain.com`.
 1. Sign up free at dash.cloudflare.com.
 2. **Storage & databases → KV → Create namespace**, name it `materials-share`.
 3. **Workers & Pages → Create → Create Worker**, name it `materials-share`, **Deploy**, then **Edit code**. Replace everything with the contents of `worker.js` and **Deploy**.
-4. Worker → **Settings → Bindings → Add → KV namespace**: variable name `KV`, namespace `materials-share`.
+4. Worker → **Settings → Bindings → Add → KV namespace**: variable name `KV`, namespace `materials-share`. For AI drafts also **Add → Workers AI**, variable name `AI`.
 5. Worker → **Settings → Variables and secrets → Add** (type *Text*):
    - `REPO` = `your-username/your-repo` (e.g. `H-Sihan/Materials-Share`)
    - `SITE_URL` = your site address without a trailing slash (e.g. `https://h-sihan.github.io/Materials-Share`)
