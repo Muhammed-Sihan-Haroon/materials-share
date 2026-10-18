@@ -1,8 +1,172 @@
 # Materials Share — GitHub Pages edition
 
+[![CI](https://github.com/muhammed-sihan-haroon/materials-share/actions/workflows/ci.yml/badge.svg)](https://github.com/muhammed-sihan-haroon/materials-share/actions/workflows/ci.yml)
+
 Share class materials with an 8-character code (e.g. `V2WV-AF63`), collect student work for activities, and return feedback — hosted free on GitHub Pages (optionally on your own domain) plus a free Cloudflare Worker for uploads.
 
 Students use **one code box** on the home page for everything: a materials code, an activity code (to hand in), or their receipt code (to read feedback).
+
+## Architecture
+
+Materials Share has no server of its own to look after. A **static site on GitHub Pages** does all the encryption in the browser, a **small Cloudflare Worker** accepts uploads and hands out keys at the right time, and **GitHub Actions** tests every change.
+
+### System overview
+
+```mermaid
+flowchart TB
+  subgraph People["Browsers"]
+    S["Student<br/>index.html"]
+    L["Lecturer<br/>dashboard · modules · marking · quick share"]
+  end
+
+  subgraph GH["GitHub"]
+    R[("Repository: main<br/>code + encrypted content<br/>s/ a/ m/ keys/")]
+    P["GitHub Pages<br/>static hosting"]
+    API["GitHub API"]
+    ACT["GitHub Actions<br/>CI · nightly cleanup"]
+  end
+
+  subgraph CF["Cloudflare"]
+    W["Worker: materials-api"]
+    KV[("Workers KV<br/>submissions · drafts<br/>feedback · release keys")]
+    AI["Workers AI<br/>feedback drafts"]
+  end
+
+  S -- "site + encrypted files" --> P
+  L -- "site" --> P
+  L -- "commit encrypted content<br/>(fine-grained token)" --> API
+  API --> R
+  R -- "publish" --> P
+  R -- "push / PR" --> ACT
+
+  S -- "hand in, read feedback,<br/>fetch released keys" --> W
+  L -- "/admin/* with token" --> W
+  W -- "is this token's owner<br/>a repo writer?" --> API
+  W -- "is the activity open?" --> P
+  W <--> KV
+  W -- "text of a submission,<br/>only when the lecturer asks" --> AI
+```
+
+### What is encrypted, and who can read it
+
+Everything sensitive is encrypted **in the browser** before it leaves the device. GitHub and Cloudflare only ever store ciphertext.
+
+```mermaid
+flowchart TB
+  PP["Marking passphrase"] -- "PBKDF2 · 600k" --> VK["Vault key (AES-256)"]
+  VK -- "wraps" --> PRIV["Lecturer private key<br/>keys/lecturer.json"]
+  VK -- "encrypts" --> IDX["Lecturer data: activities, modules,<br/>quick shares · keys/index.bin"]
+  VK -- "encrypts" --> DR["Feedback drafts (KV)"]
+  VK -- "encrypts" --> TOK["GitHub token<br/>(this device only)"]
+
+  CODE["Share / activity / module code"] -- "PBKDF2 · 400k" --> CK["Folder id + AES key"]
+  CK -- "encrypts" --> PUB["Shared files · activity briefs<br/>module index (s/ a/ m/)"]
+
+  IK["Item key (random, per module item)"] -- "encrypts" --> MF["Module files m/…/f/"]
+  IK -. "scheduled items: held by the Worker<br/>until the release time" .-> KV2[("KV k:…")]
+
+  PUBK["Lecturer public key"] -- "ECDH P-256 + AES-GCM" --> SUB["Student submissions (KV)"]
+  PRIV -. "opens" .-> SUB
+
+  RC["Student receipt code"] -- "PBKDF2 · 400k" --> RK["Feedback key"]
+  RK -- "encrypts" --> FB["Released feedback (KV)"]
+```
+
+| Data | Stored in | Encrypted with | Readable by |
+|---|---|---|---|
+| Shared files, activity briefs, module index | GitHub repo (`s/`, `a/`, `m/`) | Key derived from the code | Anyone with the code |
+| Module files | GitHub repo (`m/…/f/`) | Random item key | Module code holders, once published or released |
+| Student submissions | Cloudflare KV | Lecturer's public key | Lecturer (marking passphrase) |
+| Feedback drafts | Cloudflare KV | Vault key | Lecturer |
+| Released feedback | Cloudflare KV | Key derived from the receipt code | The student with the receipt |
+| Lecturer's private key and data | GitHub repo (`keys/`) | Vault key | Lecturer |
+| GitHub token | Lecturer's browser | Vault key | Lecturer, on that device |
+
+### A student hands in work and gets feedback
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor St as Student
+  participant Pg as GitHub Pages
+  participant Wk as Worker
+  participant KV as Workers KV
+  actor Le as Lecturer
+  participant AI as Workers AI
+
+  St->>Pg: Enter activity code
+  Pg-->>St: Encrypted brief + worksheet
+  Note over St: Decrypt brief with the code.<br/>Seal work with the lecturer's public key.<br/>Generate a private receipt code.
+  St->>Wk: POST /submit (sealed package)
+  Wk->>Pg: Activity open? (meta.json)
+  Wk->>KV: store s:activity:receipt
+  Wk-->>St: 201 Handed in, shows receipt code
+
+  Le->>Wk: GET /admin/list, /admin/sub (token)
+  Wk-->>Le: Sealed submissions
+  Note over Le: Unlock with passphrase, preview files
+  opt AI draft
+    Le->>Wk: POST /admin/ai (extracted text, criteria, model answer)
+    Wk->>AI: Draft criteria, mark and comments
+    AI-->>Wk: JSON draft
+    Wk-->>Le: Draft to check and edit
+  end
+  Le->>Wk: PUT /admin/feedback (sealed with receipt key)
+  St->>Wk: GET /feedback/receipt-id
+  Wk-->>St: Encrypted feedback, opened with the receipt code
+```
+
+### Answers that unlock on time
+
+```mermaid
+sequenceDiagram
+  actor Le as Lecturer
+  participant Rp as GitHub repo / Pages
+  participant Wk as Worker + KV
+  actor St as Student
+
+  Le->>Rp: Commit answers file (encrypted with a new item key)<br/>module index lists it as "Opens Fri 17:00", no key
+  Le->>Wk: PUT /admin/key (item key, release time)
+  St->>Wk: GET /key/item (before Friday 17:00)
+  Wk-->>St: 423 Not yet, "Opens Fri 17:00"
+  St->>Wk: GET /key/item (after the release time)
+  Wk-->>St: Item key
+  St->>Rp: Download encrypted answers
+  Note over St: Decrypt in the browser
+```
+
+### CI pipeline
+
+```mermaid
+flowchart LR
+  DEV["Push to main / pull request"] --> F{"Only data changed?<br/>s/ a/ m/ keys/"}
+  F -- yes --> SKIP["Skip CI"]
+  F -- no --> SC["Static checks<br/>scripts parse · no CDN scripts<br/>script policy on every page"]
+  SC --> E2E["End-to-end tests<br/>clean copy of the site · real worker.js<br/>in-memory KV · stand-in AI · mocked GitHub API<br/>headless Chromium"]
+  E2E --> OUT["Run summary: pass/fail table<br/>screenshots artifact"]
+  DB["Dependabot<br/>monthly, grouped"] --> PR["Update PR"] --> SC
+  E2E -- "green" --> GATE["Ruleset: checks required<br/>before merging to main"]
+```
+
+### Repository layout
+
+```text
+index.html          student page: one box for module, materials, activity and receipt codes
+dashboard.html      lecturer home: needs attention, coming up, module cards
+modules.html        module file manager: weeks, drafts, publish, schedule
+review.html         activities and marking, AI drafts
+admin.html          quick share
+lecturer.js         lecturer sign-in, session, shared helpers
+shared.js           crypto and data formats used by every page
+gh.js               GitHub API helpers (commits)
+config.js           site name, salt, submissions service address
+style.css           design system
+worker.js           Cloudflare Worker: submissions, feedback, release keys, AI drafts
+vendor/             self-hosted JSZip, Mammoth (Word), PDF.js
+s/  a/  m/  keys/   published content, all encrypted (written by the site)
+tests/              static checks, end-to-end suite, local worker runner
+.github/            CI, nightly cleanup, Dependabot
+```
 
 ## How it works
 
@@ -102,8 +266,8 @@ Students then go to `get.yourdomain.com`.
 3. **Workers & Pages → Create → Create Worker**, name it `materials-share`, **Deploy**, then **Edit code**. Replace everything with the contents of `worker.js` and **Deploy**.
 4. Worker → **Settings → Bindings → Add → KV namespace**: variable name `KV`, namespace `materials-share`. For AI drafts also **Add → Workers AI**, variable name `AI`.
 5. Worker → **Settings → Variables and secrets → Add** (type *Text*):
-   - `REPO` = `your-username/your-repo` (e.g. `H-Sihan/Materials-Share`)
-   - `SITE_URL` = your site address without a trailing slash (e.g. `https://h-sihan.github.io/Materials-Share`)
+   - `REPO` = `your-username/your-repo` (e.g. `muhammed-sihan-haroon/materials-share`)
+   - `SITE_URL` = your site address without a trailing slash (e.g. `https://muhammed-sihan-haroon.github.io/materials-share`)
    Then **Deploy**.
 6. Open the worker's `…workers.dev` address; it should say *Materials Share submissions service is running.*
 
@@ -122,3 +286,21 @@ Students then go to `get.yourdomain.com`.
 - Cloudflare free plan: 1,000 uploads/feedback saves per day, 1 GB storage, 20 MB per submission — comfortably enough for a few classes. Delete old submissions each semester (*Close submissions* stops new ones).
 - New activities and *Close/Reopen* take about a minute to apply (GitHub Pages publishing).
 - Anyone with an activity code can submit; check the name and student number you see.
+
+## Development and CI
+
+Every push to `main` and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+1. **Static checks** (`tests/check-syntax.mjs`): every JavaScript file and inline script parses, pages only load scripts from this site, and every page sets a script policy.
+2. **End-to-end tests** (`tests/e2e.py`): serves a clean copy of the site (never your live `s/`, `a/`, `m/` or `keys/` data), runs the real `worker.js` under Node with an in-memory KV and a stand-in AI model, simulates GitHub's API, and drives lecturer and student flows in headless Chromium. Screenshots are kept as a build artifact for 7 days.
+
+Commits that only change published data (shares, activities, modules) skip CI. Dependabot proposes monthly updates for the CI tools.
+
+Run locally:
+
+```bash
+pip install -r tests/requirements.txt
+python -m playwright install chromium
+node tests/check-syntax.mjs
+python tests/e2e.py
+```
