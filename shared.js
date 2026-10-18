@@ -169,17 +169,49 @@
     return { code, id, expires, entries, manifest };
   }
 
-  // ---------- one code box: materials, activity or feedback
+  // ---------- modules
+  // m/<id>/meta.json            public marker
+  // m/<id>/index.bin            sealed with the module code's key: weeks + released items (+ their keys)
+  // m/<id>/f/<file>.bin         each file sealed with its own item key
+  // Draft items are never in the public index. Scheduled items are listed without a key; the
+  // submissions service hands the key out after the release time.
+  const randHex = (n) => Array.from(rnd(n), (b) => b.toString(16).padStart(2, "0")).join("");
+  const randKey = () => rnd(32);
+
+  async function itemKey(item, submitUrl) {
+    if (item.key) return importAes(b64d(item.key));
+    const svc = (submitUrl || "").replace(/\/+$/, "");
+    if (!svc) throw Object.assign(new Error("locked"), { until: item.lock });
+    const r = await fetch(`${svc}/key/${item.id}`, { cache: "no-store" });
+    if (r.status === 423) throw Object.assign(new Error("locked"), { until: (await r.json()).until || item.lock });
+    if (!r.ok) throw new Error("network " + r.status);
+    return importAes(new Uint8Array(await r.arrayBuffer()));
+  }
+
+  function weekOf(start, n) {
+    if (!start) return null;
+    const d = new Date(start + "T00:00:00");
+    d.setDate(d.getDate() + (n - 1) * 7);
+    return d;
+  }
+  function currentWeek(start, count, now = new Date()) {
+    if (!start) return null;
+    const w = Math.floor((now - new Date(start + "T00:00:00")) / (7 * 864e5)) + 1;
+    return Math.min(Math.max(w, 1), count || 1);
+  }
+
+  // ---------- one code box: materials, activity, module or feedback
   async function openAny(code, salt, base, submitUrl) {
     const d = await derive(code, salt);
     const get = (u) => fetch(u, { cache: "no-store" }).catch(() => null);
     const svc = (submitUrl || "").replace(/\/+$/, "");
-    const [s, a, f] = await Promise.all([
+    const [s, a, md, f] = await Promise.all([
       get(`${base}s/${d.id}/meta.json`),
       get(`${base}a/${d.id}/meta.json`),
+      get(`${base}m/${d.id}/meta.json`),
       svc ? get(`${svc}/feedback/${d.id}`) : Promise.resolve(null),
     ]);
-    if (!s && !a) throw new Error("network");
+    if (!s && !a && !md) throw new Error("network");
     const bin = async (path) => {
       const r = await fetch(base + path, { cache: "no-store" });
       if (!r.ok) throw new Error("network " + r.status);
@@ -204,6 +236,17 @@
       return {
         kind: "activity", id: d.id, meta, brief: toJSON(await bin(`a/${d.id}/m.bin`)),
         file: (fl) => bin(`a/${d.id}/${fl.f}`),
+      };
+    }
+    if (md && md.ok) {
+      const id = d.id;
+      return {
+        kind: "module", id, code, index: toJSON(await bin(`m/${id}/index.bin`)),
+        file: async (item, fl, key) => {
+          const r = await fetch(`${base}m/${id}/f/${fl.f}`);
+          if (!r.ok) throw new Error("network " + r.status);
+          return unseal(key || (await itemKey(item, svc)), await r.arrayBuffer());
+        },
       };
     }
     if (f && f.ok) return { kind: "feedback", feedback: toJSON(await unseal(d.key, await f.arrayBuffer())) };
@@ -256,5 +299,6 @@
     ALPHABET, LEN, ITER, normalise, pretty, valid, newCode, derive, seal, unseal, importAes,
     b64e, b64d, toJSON, fromJSON, text, createLecturerKeys, unlockLecturer, importPub, sealFor, openWith,
     pack, unpack, buildShare, openAny, activityState, sizeText, fmtDate, brand, tiles,
+    randHex, randKey, itemKey, weekOf, currentWeek,
   };
 })(typeof window !== "undefined" ? window : globalThis);
