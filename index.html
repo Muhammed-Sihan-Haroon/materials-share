@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
 <title>Class Materials</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +21,7 @@
   <div id="home">
     <div class="hero">
       <h1>Enter your code</h1>
-      <p class="lead">Type the code your lecturer gives you. It's 8 letters and numbers, and it works for class materials, activities and feedback receipts.</p>
+      <p class="lead">Type the code your lecturer gives you. It's 8 letters and numbers, and it works for modules, class materials, activities and feedback receipts.</p>
       <form id="form">
         <input class="code-input" id="code" maxlength="12" autocomplete="off" autocapitalize="characters"
                spellcheck="false" placeholder="ABCD-2345" aria-label="Code" required>
@@ -28,10 +29,26 @@
         <button class="btn full" id="go">Open</button>
       </form>
     </div>
+    <div class="card narrow" id="myMods" hidden>
+      <h2>Your modules</h2>
+      <div id="myModsList"></div>
+    </div>
     <div class="card narrow" id="mine" hidden>
       <h2>Your submissions on this device</h2>
       <div id="mineList"></div>
     </div>
+  </div>
+
+  <!-- module -->
+  <div id="module" hidden>
+    <div class="card">
+      <p class="muted" id="mShort" style="margin:0"></p>
+      <h1 id="mTitle"></h1>
+      <p class="muted" id="mMeta" style="margin:0"></p>
+      <input id="mSearch" type="search" placeholder="Search this module" style="margin-top:14px">
+    </div>
+    <div id="mWeeks"></div>
+    <p class="muted"><a href="./">Enter another code</a></p>
   </div>
 
   <!-- materials -->
@@ -133,7 +150,7 @@
   };
 
   function show(id) {
-    for (const v of ["home", "share", "activity", "receipt", "feedback"]) $(v).hidden = v !== id;
+    for (const v of ["home", "share", "activity", "receipt", "feedback", "module"]) $(v).hidden = v !== id;
     window.scrollTo(0, 0);
   }
 
@@ -164,6 +181,31 @@
     }
   }
 
+  // ---------- modules remembered on this device
+  function renderMyMods() {
+    const list = store.get("ms-modules") || [];
+    $("myMods").hidden = !list.length;
+    const box = $("myModsList");
+    box.textContent = "";
+    for (const m of list) {
+      const row = document.createElement("div");
+      row.className = "mine";
+      const left = document.createElement("div");
+      const t = document.createElement("b");
+      t.textContent = m.short;
+      const sub = document.createElement("div");
+      sub.className = "muted";
+      sub.textContent = m.title;
+      left.append(t, sub);
+      const b = document.createElement("button");
+      b.className = "btn small";
+      b.textContent = "Open";
+      b.onclick = () => { $("code").value = MS.pretty(m.code); load(m.code); };
+      row.append(left, b);
+      box.append(row);
+    }
+  }
+
   // ---------- open any code
   async function load(raw) {
     const code = MS.normalise(raw);
@@ -181,6 +223,7 @@
       current = r;
       if (r.kind === "share") renderShare();
       else if (r.kind === "activity") renderActivity();
+      else if (r.kind === "module") renderModule();
       else renderFeedback(r.feedback);
     } catch (e) {
       showErr(e.name === "OperationError" ? "That code couldn't unlock anything." : "Couldn't reach the site. Check your connection and try again.");
@@ -243,7 +286,7 @@
     if (window.JSZip) return Promise.resolve();
     return new Promise((ok, fail) => {
       const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.src = "vendor/jszip.min.js";
       s.onload = ok;
       s.onerror = fail;
       document.head.append(s);
@@ -414,6 +457,170 @@
     };
   }
 
+  // ---------- module
+  const KIND = { material: "Material", worksheet: "Worksheet", answer: "Answers", activity: "Activity" };
+  const WEEK = 7 * 864e5;
+  let openWeeks = new Set();
+
+  function isOpenItem(i) { return !i.lock || i.lock <= Date.now(); }
+
+  function renderModule() {
+    const ix = current.index;
+    show("module");
+    document.title = ix.short + " · " + SITE.name;
+    $("mShort").textContent = ix.short;
+    $("mTitle").textContent = ix.title;
+    const list = (store.get("ms-modules") || []).filter((m) => m.code !== current.code);
+    list.unshift({ code: current.code, short: ix.short, title: ix.title });
+    store.set("ms-modules", list.slice(0, 12));
+    const withItems = [...new Set(ix.items.map((i) => i.week))].sort((a, b) => a - b);
+    const cw = MS.currentWeek(ix.start, ix.weeks.length) || withItems[withItems.length - 1] || 1;
+    $("mMeta").textContent = ix.start ? `Week ${cw} of ${ix.weeks.length}` : `${ix.weeks.length} weeks`;
+    openWeeks = new Set([cw]);
+    $("mSearch").value = "";
+    drawWeeks();
+  }
+
+  $("mSearch").oninput = () => drawWeeks();
+
+  function drawWeeks() {
+    const ix = current.index;
+    const q = $("mSearch").value.trim().toLowerCase();
+    const box = $("mWeeks");
+    box.textContent = "";
+    const cw = MS.currentWeek(ix.start, ix.weeks.length);
+    for (const w of ix.weeks) {
+      let items = ix.items.filter((i) => i.week === w.n).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (q) items = items.filter((i) => (i.title + " " + (i.files || []).map((f) => f.name).join(" ") + " " + KIND[i.kind]).toLowerCase().includes(q));
+      if (!items.length) continue;
+      const expanded = q || openWeeks.has(w.n);
+      const fresh = items.some((i) => isOpenItem(i) && Date.now() - Math.max(Date.parse(i.published || 0) || 0, i.lock || 0) < WEEK);
+      const date = MS.weekOf(ix.start, w.n);
+
+      const sec = document.createElement("section");
+      sec.className = "card week" + (w.n === cw ? " now" : "");
+      const head = document.createElement("button");
+      head.type = "button";
+      head.className = "wk-toggle";
+      head.setAttribute("aria-expanded", expanded ? "true" : "false");
+      const t = document.createElement("span");
+      t.className = "wk-n";
+      t.textContent = `Week ${w.n}` + (w.title ? `: ${w.title}` : "");
+      const meta = document.createElement("span");
+      meta.className = "muted";
+      meta.textContent = [date ? "w/c " + date.toLocaleDateString([], { day: "numeric", month: "short" }) : "", `${items.length} item${items.length === 1 ? "" : "s"}`, w.n === cw ? "this week" : ""].filter(Boolean).join(", ");
+      head.append(t, meta);
+      if (fresh) { const c = document.createElement("span"); c.className = "chip new"; c.textContent = "New"; head.append(c); }
+      head.onclick = () => { openWeeks.has(w.n) ? openWeeks.delete(w.n) : openWeeks.add(w.n); drawWeeks(); };
+      sec.append(head);
+
+      if (expanded) {
+        const body = document.createElement("div");
+        body.className = "items";
+        for (const i of items) body.append(studentItem(i));
+        const dl = items.filter((i) => isOpenItem(i) && !i.activity).reduce((n, i) => n + (i.files || []).length, 0);
+        if (dl > 1) {
+          const zb = document.createElement("button");
+          zb.className = "btn ghost small";
+          zb.textContent = "Download this week as a zip";
+          zb.style.marginTop = "10px";
+          zb.onclick = () => zipWeek(w, items, zb);
+          body.append(zb);
+        }
+        sec.append(body);
+      }
+      box.append(sec);
+    }
+    if (!box.children.length) {
+      const e = document.createElement("div");
+      e.className = "card empty";
+      e.textContent = q ? "Nothing in this module matches your search." : "Nothing has been published in this module yet. Check back after your next class.";
+      box.append(e);
+    }
+  }
+
+  function studentItem(i) {
+    const row = document.createElement("div");
+    row.className = "item";
+    const main = document.createElement("div");
+    main.className = "item-main";
+    const top = document.createElement("div");
+    const k = document.createElement("span");
+    k.className = "kind k-" + i.kind;
+    k.textContent = KIND[i.kind] || "Material";
+    const b = document.createElement("b");
+    b.textContent = i.title;
+    top.append(k, " ", b);
+    main.append(top);
+    if (i.note) { const n = document.createElement("div"); n.className = "muted"; n.textContent = i.note; main.append(n); }
+    row.append(main);
+
+    if (i.activity) {
+      const go = document.createElement("button");
+      go.className = "btn small";
+      go.textContent = "Open activity";
+      go.onclick = () => { $("code").value = MS.pretty(i.activity); load(i.activity); };
+      row.append(go);
+    } else if (!isOpenItem(i)) {
+      const lock = document.createElement("span");
+      lock.className = "chip partly";
+      lock.textContent = "Opens " + MS.fmtDate(new Date(i.lock).toISOString());
+      row.append(lock);
+    } else {
+      const files = document.createElement("div");
+      files.className = "files item-files";
+      for (const f of i.files || []) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const name = document.createElement("span");
+        const sz = document.createElement("span");
+        name.textContent = f.name;
+        sz.className = "sz";
+        sz.textContent = MS.sizeText(f.size) + " ↓";
+        btn.append(name, sz);
+        btn.onclick = () => saveModuleFile(i, f, sz);
+        files.append(btn);
+      }
+      main.append(files);
+    }
+    return row;
+  }
+
+  async function saveModuleFile(i, f, label) {
+    const before = MS.sizeText(f.size);
+    label.textContent = "Downloading…";
+    try {
+      download(new Blob([await current.file(i, f)], { type: f.type }), f.name);
+      label.textContent = before + " ✓";
+    } catch (e) {
+      label.textContent = e.until ? "Not open yet" : "Failed, tap to retry";
+    }
+  }
+
+  async function zipWeek(w, items, btn) {
+    btn.disabled = true;
+    try {
+      await loadZipLib();
+      const zip = new JSZip();
+      let n = 0;
+      for (const i of items) {
+        if (!isOpenItem(i) || i.activity) continue;
+        const key = await MS.itemKey(i, SVC);
+        for (const f of i.files || []) {
+          btn.textContent = `Downloading ${++n}…`;
+          zip.file(f.name, await current.file(i, f, key));
+        }
+      }
+      btn.textContent = "Zipping…";
+      download(await zip.generateAsync({ type: "blob" }), `${current.index.short} week ${w.n}.zip`.replace(/[^\w\- .]+/g, ""));
+      btn.textContent = "Downloaded ✓";
+    } catch (e) {
+      btn.textContent = "Couldn't build the zip, download files one by one";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // ---------- feedback
   function renderFeedback(fb) {
     show("feedback");
@@ -446,6 +653,7 @@
   $("form").onsubmit = (e) => { e.preventDefault(); load($("code").value); };
 
   renderMine();
+  renderMyMods();
   window.addEventListener("hashchange", () => {
     const h = location.hash.slice(1);
     if (!h) return location.reload();
