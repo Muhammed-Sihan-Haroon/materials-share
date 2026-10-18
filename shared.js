@@ -223,11 +223,38 @@
     return i ? n.toFixed(1) + " " + u[i] : n + " B";
   }
 
+  // ---------- page chrome
+  function brand() {
+    if (typeof document === "undefined") return;
+    const site = global.SITE || {};
+    const name = site.name || "Class Materials";
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; return el; };
+    set("site", name);
+    set("mark", name.split(/\s+/).filter((w) => /\w/.test(w)).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "CM");
+    const sub = set("sub", site.subtitle || "");
+    if (sub) sub.hidden = !site.subtitle;
+  }
+
+  // Show a code as letter tiles in two groups of four. textContent stays the bare code.
+  function tiles(el, code) {
+    el.textContent = "";
+    el.classList.add("tiles");
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", "Code " + [...code].join(" "));
+    [...code].forEach((ch, i) => {
+      if (i === 4) { const s = document.createElement("span"); s.className = "sep"; el.append(s); }
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = ch;
+      el.append(t);
+    });
+  }
+
   const fmtDate = (iso) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
   global.MS = {
     ALPHABET, LEN, ITER, normalise, pretty, valid, newCode, derive, seal, unseal, importAes,
     b64e, b64d, toJSON, fromJSON, text, createLecturerKeys, unlockLecturer, importPub, sealFor, openWith,
-    pack, unpack, buildShare, openAny, activityState, sizeText, fmtDate,
+    pack, unpack, buildShare, openAny, activityState, sizeText, fmtDate, brand, tiles,
   };
 })(typeof window !== "undefined" ? window : globalThis);
