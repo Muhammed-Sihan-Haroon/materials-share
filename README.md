@@ -53,6 +53,20 @@ Students then go to `get.yourdomain.com`.
 - `config.js` holds your site's salt. **Never change it** after sharing codes, or every existing code stops working.
 
 
+## Lecturer pages
+
+- **Dashboard** (`dashboard.html`) is your home page: work waiting for feedback, deadlines and scheduled releases in the next two weeks, and a card per module.
+- **Modules** (`modules.html`): one student code per module for the whole semester. Each module has weeks; drag files onto a week (or use *Add files*) and they arrive as **drafts** with a guessed type (Material, Worksheet, Answers). Publish, unpublish, schedule, edit, move between weeks, reorder, delete, search.
+  - **Scheduled** items (e.g. answers) are listed for students with "Opens …" and unlock by themselves at that time: the item's key is held by the submissions service and handed out only after the release time.
+  - **Add activity** links an activity into a week; students open it from the module page. New activities can also be added to a module week when you create them.
+- **Activities & marking** (`review.html`) and **Quick share** (`admin.html`, one-off files with their own code) work as before.
+
+### Signing in
+
+- Your **marking passphrase** signs you in on every lecturer page. The GitHub token is stored on your device only in encrypted form, locked by the passphrase, so you no longer paste it each time.
+- *Stay signed in* keeps you signed in for 8 hours. The unlocked keys are kept as non-extractable browser keys, which pages can use but no script can copy out. **Sign out** clears them; use it on shared computers.
+- All JavaScript libraries are served from this repo (`vendor/`), and lecturer pages refuse scripts from any other site.
+
 ## Submissions & feedback
 
 ### How it works
