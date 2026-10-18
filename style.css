@@ -185,3 +185,46 @@ tr.sel td{background:var(--accent-soft)}
 .url{font:700 clamp(1.3rem,4vw,2.6rem)/1.2 var(--font);word-break:break-all;color:var(--ink)}
 .big{font-size:clamp(2.4rem,8.5vw,7.5rem);line-height:1;margin-top:1vh}
 .big.tiles .t{border-width:.06em;border-radius:.12em}
+
+/* ---------- modules: weeks and items (lecturer and student) */
+.week{padding:0;overflow:hidden}
+.week.now{border-color:var(--accent)}
+.week-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px 10px 6px}
+.wk-toggle{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;flex:1 1 280px;text-align:left;background:none;border:0;padding:8px 10px;border-radius:var(--r-sm);font:inherit;color:var(--ink);cursor:pointer}
+.wk-toggle:hover{background:var(--sunken)}
+.wk-toggle::before{content:"";width:.5em;height:.5em;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s;align-self:center;flex:none}
+.wk-toggle[aria-expanded="true"]::before{transform:rotate(45deg)}
+.wk-n{font-weight:700;font-size:1.05rem}
+.week > .wk-toggle{width:100%;padding:16px 18px}
+.items{border-top:1px solid var(--line);padding:6px 16px 14px}
+.item{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.item:last-child{border-bottom:0}
+.item-main{flex:1 1 260px;min-width:0}
+.item-main b{font-weight:700}
+.item-files{margin:8px 0 0}
+.item-files button{padding:9px 12px;margin-bottom:6px}
+.grip{cursor:grab;color:var(--muted);letter-spacing:-.15em;user-select:none;padding:0 2px}
+.item.dragging{opacity:.45}
+.week.drop{outline:2px dashed var(--accent);outline-offset:-4px;background:var(--accent-soft)}
+.drop-hint{color:var(--muted);text-align:center;padding:18px 8px;margin:0;border:1px dashed var(--line);border-radius:var(--r-sm);margin-top:8px}
+.kind{display:inline-block;font-size:.74rem;font-weight:700;padding:1px 8px;border-radius:4px;background:var(--sunken);color:var(--muted);vertical-align:1px}
+.kind.k-worksheet{background:var(--accent-soft);color:var(--accent)}
+.kind.k-answer{background:#f6ead6;color:var(--warn)}
+.kind.k-activity{background:var(--ink);color:var(--card)}
+@media (prefers-color-scheme:dark){.kind.k-answer{background:#3a2e17}}
+
+/* ---------- dialog */
+dialog{border:1px solid var(--line);border-radius:var(--r-md);padding:24px;max-width:620px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
+dialog::backdrop{background:rgba(16,22,30,.45)}
+fieldset.vis{border:1px solid var(--line);border-radius:var(--r-sm);margin:16px 0 0;padding:10px 14px 12px}
+fieldset.vis legend{font-weight:700;font-size:.88rem;padding:0 6px}
+.dfile{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+
+/* ---------- dashboard */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:start}
+.todo{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.todo:last-child{border-bottom:0}
+.todo b{display:block}
+.mod-card h2{margin:0}
+.mod-card .nums{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0 14px;font-size:.92rem;color:var(--muted)}
+.mod-card .nums b{display:block;font-size:1.35rem;color:var(--ink)}
