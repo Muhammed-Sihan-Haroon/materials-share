@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<title>Modules</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="ltop"></header>
+<main class="wrap wide">
+  <div id="app" class="shell" hidden>
+    <aside class="side">
+      <div class="card">
+        <div class="row" style="align-items:center"><h2 style="margin:0">Modules</h2><button class="btn small" id="newMod">New module</button></div>
+        <div id="mods" class="acts"></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="card" id="empty">
+        <div class="empty"><b>Choose a module</b>Pick one on the left, or create a module for each course you teach.</div>
+      </div>
+
+      <!-- create / edit module -->
+      <div class="card" id="modForm" hidden>
+        <h2 id="modFormTitle">New module</h2>
+        <form id="mf">
+          <div class="grid">
+            <div><label for="mShort">Module code</label><input id="mShort" maxlength="20" required placeholder="QHO444"></div>
+            <div><label for="mTitle">Module name</label><input id="mTitle" maxlength="120" required placeholder="Problem Solving through Programming"></div>
+            <div><label for="mStart">Week 1 starts (optional)</label><input id="mStart" type="date"><p class="hint">Used to open the current week automatically for students.</p></div>
+            <div><label for="mWeeks">Number of weeks</label><input id="mWeeks" type="number" min="1" max="52" value="12" required></div>
+          </div>
+          <label for="mWeekTitles">Week titles (optional, one per line)</label>
+          <textarea id="mWeekTitles" placeholder="Welcome and setting up&#10;Variables, input and output&#10;Selection: if, elif, else"></textarea>
+          <p class="actions" style="margin-top:14px">
+            <button class="btn" id="mSave">Create module</button>
+            <button class="btn ghost" type="button" id="mCancel">Cancel</button>
+          </p>
+          <p class="muted" id="mMsg"></p>
+        </form>
+      </div>
+
+      <!-- one module -->
+      <div id="modView" hidden>
+        <div class="card">
+          <div class="row">
+            <div>
+              <p class="muted" id="vShort" style="margin:0"></p>
+              <h1 id="vTitle" style="margin:0"></h1>
+              <p class="muted" id="vMeta" style="margin:4px 0 0"></p>
+            </div>
+            <div class="actions">
+              <button class="btn ghost small" id="vShow">Show code</button>
+              <a class="btn ghost small" id="vStudent" target="_blank" rel="noopener">Student view</a>
+              <button class="btn ghost small" id="vEdit">Edit module</button>
+            </div>
+          </div>
+          <div class="row" style="align-items:center;margin-top:14px">
+            <p style="margin:0" class="muted">Student code <span class="code-sm" id="vCode"></span></p>
+            <input id="vSearch" type="search" placeholder="Search this module" style="max-width:280px">
+          </div>
+          <p class="muted" id="vSave" aria-live="polite" style="margin:10px 0 0"></p>
+        </div>
+        <div id="weeks"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- item editor -->
+<dialog id="dlg">
+  <form method="dialog" id="df">
+    <h2 id="dTitleH">Edit item</h2>
+    <div id="dActivityPick" hidden>
+      <label for="dAct">Activity</label>
+      <select id="dAct"></select>
+      <p class="hint">Create activities on the <a href="review.html">Activities &amp; marking</a> page first.</p>
+    </div>
+    <div id="dFileFields">
+      <label for="dName">Title</label>
+      <input id="dName" maxlength="160">
+      <div class="grid">
+        <div><label for="dKind">Type</label>
+          <select id="dKind"><option value="material">Material</option><option value="worksheet">Worksheet</option><option value="answer">Answers</option></select></div>
+        <div><label for="dWeek">Week</label><select id="dWeek"></select></div>
+      </div>
+      <label for="dNote">Note for students (optional)</label>
+      <textarea id="dNote" style="min-height:70px" maxlength="1000"></textarea>
+      <label>Files</label>
+      <div id="dFiles"></div>
+      <input id="dAdd" type="file" multiple>
+    </div>
+    <fieldset class="vis">
+      <legend>Who can see it</legend>
+      <label class="check"><input type="radio" name="vis" value="draft"> Draft: only you</label>
+      <label class="check"><input type="radio" name="vis" value="published"> Published: students can open it now</label>
+      <label class="check"><input type="radio" name="vis" value="scheduled" id="dSched"> Scheduled: opens at</label>
+      <input id="dAt" type="datetime-local" style="max-width:260px;margin-left:28px">
+      <p class="hint" id="dSchedHint"></p>
+    </fieldset>
+    <p class="actions" style="margin-top:16px">
+      <button class="btn" value="save" id="dSave">Save</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </p>
+    <p class="err" id="dMsg"></p>
+  </form>
+</dialog>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="gh.js"></script>
+<script src="lecturer.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const el = Lecturer.el;
+  const KIND = { material: "Material", worksheet: "Worksheet", answer: "Answers", activity: "Activity" };
+  const MAX_FILE = 50 * 1024 * 1024;
+  let L = null, ix = null, M = null, editing = null, open = new Set();
+
+  document.title = "Modules · " + SITE.name;
+
+  // ---------- helpers
+  const now = () => new Date().toISOString();
+  const weekTitle = (w) => `Week ${w.n}` + (w.title ? `: ${w.title}` : "");
+  const fmtDay = (d) => d.toLocaleDateString([], { day: "numeric", month: "short" });
+  const guessKind = (n) => /answer|solution|model/i.test(n) ? "answer" : /worksheet|lab|exercise|task|practical|activity/i.test(n) ? "worksheet" : "material";
+  const niceTitle = (n) => n.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim() || n;
+  const moduleKey = Lecturer.moduleKey;
+  const released = Lecturer.released;
+
+  // ---------- saving: every change is one commit, queued so they never overlap
+  let chain = Promise.resolve();
+  function save(message, extra = [], after) {
+    const m = M;
+    const job = async () => {
+      Lecturer.say($("vSave"), "Saving…");
+      try {
+        const fresh = await L.loadIndex();
+        const at = fresh.modules.findIndex((x) => x.id === m.id);
+        if (at >= 0) fresh.modules[at] = m; else fresh.modules.unshift(m);
+        ix = fresh;
+        await L.gh.commit([...extra, ...(await Lecturer.moduleEntries(m)), await L.indexEntry(ix)], message);
+        Lecturer.say($("vSave"), "Saved. Students see changes in about a minute.", "ok");
+        if (after) after();
+      } catch (e) {
+        Lecturer.say($("vSave"), "Couldn't save: " + (e.message || e.name), "err");
+        throw e;
+      }
+    };
+    chain = chain.then(job, job);
+    return chain;
+  }
+
+  async function setKey(item) {
+    if (!L.SVC) return;
+    if (item.status === "scheduled") {
+      await L.svc("PUT", `/admin/key?id=${item.id}&at=${Date.parse(item.at)}`, MS.b64d(item.key));
+    }
+  }
+
+  // ---------- module list
+  function renderMods() {
+    const box = $("mods");
+    box.textContent = "";
+    if (!ix.modules.length) {
+      box.append(el("p", { class: "muted", style: "margin:8px 2px", text: "No modules yet." }));
+      return;
+    }
+    for (const m of ix.modules) {
+      const drafts = m.items.filter((i) => i.status === "draft").length;
+      const b = el("button", { type: "button", class: "act" + (M && M.id === m.id ? " on" : "") },
+        el("span", { class: "ttl", text: m.short }),
+        drafts ? el("span", { class: "chip", text: `${drafts} draft${drafts === 1 ? "" : "s"}` }) : el("span"),
+        el("span", { class: "sub", text: m.title }));
+      b.onclick = () => openModule(m);
+      box.append(b);
+    }
+  }
+
+  function updateEmpty() {
+    $("empty").hidden = !$("modForm").hidden || !$("modView").hidden;
+  }
+
+  // ---------- create / edit module
+  let formMode = "new";
+  $("newMod").onclick = () => {
+    formMode = "new";
+    $("mf").reset();
+    $("mWeeks").value = 12;
+    $("modFormTitle").textContent = "New module";
+    $("mSave").textContent = "Create module";
+    $("modForm").hidden = false;
+    $("modView").hidden = true;
+    updateEmpty();
+    $("mShort").focus();
+  };
+  $("mCancel").onclick = () => { $("modForm").hidden = true; if (M) $("modView").hidden = false; updateEmpty(); };
+  $("vEdit").onclick = () => {
+    formMode = "edit";
+    $("mShort").value = M.short;
+    $("mTitle").value = M.title;
+    $("mStart").value = M.start || "";
+    $("mWeeks").value = M.weeks.length;
+    $("mWeekTitles").value = M.weeks.map((w) => w.title || "").join("\n").replace(/\n+$/, "");
+    $("modFormTitle").textContent = "Edit module";
+    $("mSave").textContent = "Save changes";
+    $("modForm").hidden = false;
+    $("modView").hidden = true;
+    updateEmpty();
+  };
+
+  $("mf").onsubmit = (ev) => {
+    ev.preventDefault();
+    Lecturer.busy($("mSave"), "Saving…", async () => {
+      const count = Math.max(1, Math.min(52, Number($("mWeeks").value) || 12));
+      const titles = $("mWeekTitles").value.split("\n").map((s) => s.trim());
+      const weeks = Array.from({ length: count }, (_, k) => ({ n: k + 1, title: titles[k] || "" }));
+      try {
+        if (formMode === "new") {
+          const code = MS.newCode();
+          const d = await MS.derive(code, SITE.salt);
+          M = { id: d.id, code, short: $("mShort").value.trim(), title: $("mTitle").value.trim(), start: $("mStart").value || "", weeks, items: [], created: now() };
+        } else {
+          const lost = M.items.filter((i) => i.week > count);
+          if (lost.length && !confirm(`${lost.length} item(s) are in weeks after week ${count}. Move them to week ${count}?`)) return;
+          lost.forEach((i) => (i.week = count));
+          Object.assign(M, { short: $("mShort").value.trim(), title: $("mTitle").value.trim(), start: $("mStart").value || "", weeks });
+        }
+        await save(formMode === "new" ? `Add module ${M.short}` : `Update module ${M.short}`);
+        $("modForm").hidden = true;
+        renderMods();
+        openModule(M, formMode === "new");
+      } catch (e) {
+        Lecturer.say($("mMsg"), e.message || e.name, "err");
+      }
+    });
+  };
+
+  // ---------- one module
+  function openModule(m, fresh) {
+    M = m;
+    history.replaceState(null, "", "#" + m.id);
+    $("modForm").hidden = true;
+    $("modView").hidden = false;
+    updateEmpty();
+    $("vShort").textContent = m.short;
+    $("vTitle").textContent = m.title;
+    const cw = MS.currentWeek(m.start, m.weeks.length);
+    const counts = { pub: 0, draft: 0, sched: 0 };
+    for (const i of m.items) counts[i.status === "draft" ? "draft" : i.status === "scheduled" && !released(i) ? "sched" : "pub"]++;
+    $("vMeta").textContent = `${m.weeks.length} weeks` + (m.start ? `, week 1 starts ${MS.weekOf(m.start, 1).toLocaleDateString([], { dateStyle: "medium" })}` : "") +
+      (cw ? `. It's week ${cw} now.` : ".") + ` ${counts.pub} published, ${counts.sched} scheduled, ${counts.draft} draft.`;
+    MS.tiles($("vCode"), m.code);
+    $("vStudent").href = "./#" + m.code;
+    open = new Set([cw || 1]);
+    m.items.filter((i) => i.status === "draft").forEach((i) => open.add(i.week));
+    renderMods();
+    renderWeeks();
+    if (fresh) present();
+  }
+
+  function present() {
+    Lecturer.present({ title: `${M.short}: ${M.title}`, code: M.code, fresh: true,
+      sub: "to get this module's materials, worksheets and activities all semester." });
+  }
+  $("vShow").onclick = () => Lecturer.present({ title: `${M.short}: ${M.title}`, code: M.code,
+    sub: "to get this module's materials, worksheets and activities all semester." });
+
+  $("vSearch").oninput = () => renderWeeks();
+
+  function statusChip(i) {
+    if (i.status === "draft") return el("span", { class: "chip", text: "Draft" });
+    if (i.status === "scheduled" && !released(i)) return el("span", { class: "chip partly", text: "Opens " + MS.fmtDate(i.at) });
+    return el("span", { class: "chip met", text: "Published" });
+  }
+
+  function itemsOf(n) {
+    return M.items.filter((i) => i.week === n).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
+  function renumber(n) { itemsOf(n).forEach((i, k) => (i.order = k)); }
+
+  function renderWeeks() {
+    const box = $("weeks");
+    box.textContent = "";
+    const q = $("vSearch").value.trim().toLowerCase();
+    const cw = MS.currentWeek(M.start, M.weeks.length);
+    for (const w of M.weeks) {
+      let items = itemsOf(w.n);
+      if (q) items = items.filter((i) => (i.title + " " + (i.files || []).map((f) => f.name).join(" ") + " " + KIND[i.kind]).toLowerCase().includes(q));
+      if (q && !items.length) continue;
+      const expanded = q || open.has(w.n);
+      const date = MS.weekOf(M.start, w.n);
+      const drafts = items.filter((i) => i.status === "draft").length;
+
+      const sec = el("section", { class: "card week" + (w.n === cw ? " now" : ""), "data-week": w.n });
+      const toggle = el("button", { type: "button", class: "wk-toggle", "aria-expanded": expanded ? "true" : "false" },
+        el("span", { class: "wk-n", text: weekTitle(w) }),
+        el("span", { class: "muted", text: [date ? "w/c " + fmtDay(date) : "", `${items.length} item${items.length === 1 ? "" : "s"}`, w.n === cw ? "this week" : ""].filter(Boolean).join(", ") }));
+      toggle.onclick = () => { open.has(w.n) ? open.delete(w.n) : open.add(w.n); renderWeeks(); };
+      const fileIn = el("input", { type: "file", multiple: true, hidden: true });
+      fileIn.onchange = () => { addFiles(w.n, [...fileIn.files]); fileIn.value = ""; };
+      const acts = el("div", { class: "actions" },
+        el("button", { type: "button", class: "btn ghost small", text: "Add files", onclick: () => fileIn.click() }),
+        el("button", { type: "button", class: "btn ghost small", text: "Add activity", onclick: () => addActivity(w.n) }),
+        drafts ? el("button", { type: "button", class: "btn small", text: `Publish ${drafts} draft${drafts === 1 ? "" : "s"}`, onclick: () => publishWeek(w.n) }) : null,
+        fileIn);
+      sec.append(el("div", { class: "week-head" }, toggle, acts));
+
+      if (expanded) {
+        const list = el("div", { class: "items" });
+        if (!items.length) list.append(el("p", { class: "drop-hint", text: "Drop files here, or use Add files." }));
+        for (const i of items) list.append(itemRow(i));
+        sec.append(list);
+      }
+
+      // drag and drop: files from your computer, or items between weeks
+      sec.ondragover = (e) => { e.preventDefault(); sec.classList.add("drop"); };
+      sec.ondragleave = (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop"); };
+      sec.ondrop = (e) => {
+        e.preventDefault();
+        sec.classList.remove("drop");
+        const id = e.dataTransfer.getData("text/x-item");
+        if (id) {
+          const before = e.target.closest && e.target.closest(".item");
+          moveItem(id, w.n, before ? before.dataset.id : null);
+        } else if (e.dataTransfer.files && e.dataTransfer.files.length) {
+          addFiles(w.n, [...e.dataTransfer.files]);
+        }
+      };
+      box.append(sec);
+    }
+    if (q && !box.children.length) box.append(el("div", { class: "card empty", text: "Nothing in this module matches your search." }));
+  }
+
+  function itemRow(i) {
+    const row = el("div", { class: "item", draggable: "true", "data-id": i.id });
+    row.ondragstart = (e) => { e.dataTransfer.setData("text/x-item", i.id); e.dataTransfer.effectAllowed = "move"; row.classList.add("dragging"); };
+    row.ondragend = () => row.classList.remove("dragging");
+    const files = (i.files || []).map((f) => `${f.name} (${MS.sizeText(f.size)})`).join(", ");
+    const main = el("div", { class: "item-main" },
+      el("div", {}, el("span", { class: "kind k-" + i.kind, text: KIND[i.kind] }), " ", el("b", { text: i.title })),
+      i.activity ? el("div", { class: "muted", text: "Students open activity " + MS.pretty(i.activity.code) })
+        : el("div", { class: "muted", text: files || "No files" }));
+    const sibs = itemsOf(i.week);
+    const k = sibs.indexOf(i);
+    const pubBtn = i.status === "draft"
+      ? el("button", { type: "button", class: "btn small", text: "Publish", onclick: () => setStatus(i, "published") })
+      : el("button", { type: "button", class: "btn ghost small", text: "Unpublish", onclick: () => setStatus(i, "draft") });
+    const actions = el("div", { class: "actions" }, statusChip(i), pubBtn,
+      el("button", { type: "button", class: "btn ghost small", text: "Edit", onclick: () => editItem(i) }),
+      el("button", { type: "button", class: "btn ghost small", text: "Up", "aria-label": "Move up", disabled: k === 0, onclick: () => nudge(i, -1) }),
+      el("button", { type: "button", class: "btn ghost small", text: "Down", "aria-label": "Move down", disabled: k === sibs.length - 1, onclick: () => nudge(i, 1) }),
+      el("button", { type: "button", class: "btn danger small", text: "Delete", onclick: () => deleteItem(i) }));
+    row.append(el("span", { class: "grip", "aria-hidden": "true", text: "⋮⋮" }), main, actions);
+    return row;
+  }
+
+  // ---------- item actions
+  async function encryptFiles(item, files) {
+    const key = await MS.importAes(MS.b64d(item.key));
+    const entries = [], list = [];
+    for (const f of files) {
+      if (f.size > MAX_FILE) throw new Error(`${f.name} is larger than 50 MB.`);
+      const data = new Uint8Array(await f.arrayBuffer());
+      const fid = MS.randHex(16) + ".bin";
+      entries.push({ path: `m/${M.id}/f/${fid}`, bytes: await MS.seal(key, data) });
+      list.push({ name: f.name, type: f.type || "application/octet-stream", size: data.byteLength, f: fid });
+    }
+    return { entries, list };
+  }
+
+  async function addFiles(week, files) {
+    if (!files.length) return;
+    Lecturer.say($("vSave"), `Encrypting ${files.length} file${files.length === 1 ? "" : "s"}…`);
+    try {
+      const entries = [];
+      let order = itemsOf(week).length;
+      for (const f of files) {
+        const item = { id: MS.randHex(16), week, kind: guessKind(f.name), title: niceTitle(f.name), note: "", status: "draft", at: null,
+          key: MS.b64e(MS.randKey()), files: [], created: now(), published: null, order: order++ };
+        const enc = await encryptFiles(item, [f]);
+        item.files = enc.list;
+        entries.push(...enc.entries);
+        M.items.push(item);
+      }
+      open.add(week);
+      renderWeeks();
+      await save(`Add ${files.length} file(s) to ${M.short} week ${week}`, entries, () => renderWeeks());
+      renderMods();
+    } catch (e) {
+      Lecturer.say($("vSave"), e.message || e.name, "err");
+    }
+  }
+
+  async function setStatus(i, status) {
+    i.status = status;
+    if (status === "published") { i.published = i.published || now(); i.at = null; }
+    renderWeeks();
+    await save(`${status === "draft" ? "Unpublish" : "Publish"} ${i.title}`).catch(() => {});
+    renderMods();
+  }
+
+  async function publishWeek(n) {
+    const drafts = itemsOf(n).filter((i) => i.status === "draft");
+    if (!confirm(`Publish ${drafts.length} draft item${drafts.length === 1 ? "" : "s"} in week ${n}? Students will be able to open them.`)) return;
+    drafts.forEach((i) => { i.status = "published"; i.published = now(); });
+    renderWeeks();
+    await save(`Publish week ${n} of ${M.short}`).catch(() => {});
+    renderMods();
+  }
+
+  function nudge(i, dir) {
+    const sibs = itemsOf(i.week);
+    const k = sibs.indexOf(i), j = k + dir;
+    if (j < 0 || j >= sibs.length) return;
+    [sibs[k].order, sibs[j].order] = [sibs[j].order, sibs[k].order];
+    renderWeeks();
+    save(`Reorder ${M.short} week ${i.week}`).catch(() => {});
+  }
+
+  function moveItem(id, week, beforeId) {
+    const i = M.items.find((x) => x.id === id);
+    if (!i || i.id === beforeId) return;
+    const from = i.week;
+    i.week = week;
+    const sibs = itemsOf(week).filter((x) => x !== i);
+    const at = beforeId ? sibs.findIndex((x) => x.id === beforeId) : -1;
+    sibs.splice(at < 0 ? sibs.length : at, 0, i);
+    sibs.forEach((x, k) => (x.order = k));
+    if (from !== week) renumber(from);
+    open.add(week);
+    renderWeeks();
+    save(`Move ${i.title} to week ${week}`).catch(() => {});
+  }
+
+  async function deleteItem(i) {
+    if (!confirm(`Delete "${i.title}"? Its files are removed and students can no longer open it.`)) return;
+    M.items = M.items.filter((x) => x !== i);
+    renumber(i.week);
+    renderWeeks();
+    if (i.status === "scheduled" && L.SVC) L.svc("DELETE", `/admin/key?id=${i.id}`).catch(() => {});
+    await save(`Delete ${i.title}`, (i.files || []).map((f) => ({ path: `m/${M.id}/f/${f.f}`, remove: true }))).catch(() => {});
+    renderMods();
+  }
+
+  // ---------- edit dialog
+  const dlg = $("dlg");
+  let pending = [], removed = [];
+
+  function fillWeeks(sel, n) {
+    sel.textContent = "";
+    for (const w of M.weeks) sel.append(el("option", { value: w.n, text: weekTitle(w), selected: w.n === n }));
+  }
+
+  function renderDlgFiles() {
+    const box = $("dFiles");
+    box.textContent = "";
+    const all = [...editing.files.filter((f) => !removed.includes(f.f)).map((f) => ({ f, kept: true })), ...pending.map((f) => ({ f, kept: false }))];
+    if (!all.length) box.append(el("p", { class: "hint", text: "No files yet." }));
+    for (const { f, kept } of all) {
+      box.append(el("div", { class: "dfile" }, el("span", { text: `${f.name} (${MS.sizeText(f.size)})${kept ? "" : " — new"}` }),
+        el("button", { type: "button", class: "btn ghost small", text: "Remove", onclick: () => {
+          if (kept) removed.push(f.f); else pending = pending.filter((x) => x !== f);
+          renderDlgFiles();
+        } })));
+    }
+  }
+
+  function setVis(status, at) {
+    for (const r of document.querySelectorAll('input[name="vis"]')) r.checked = r.value === status;
+    $("dAt").value = at ? new Date(Date.parse(at) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+    $("dSched").disabled = !L.SVC;
+    $("dSchedHint").textContent = L.SVC ? "Good for answers: they unlock by themselves at this time." : "Scheduling needs the submissions service (submitUrl in config.js).";
+  }
+
+  function editItem(i) {
+    editing = i;
+    pending = []; removed = [];
+    $("dTitleH").textContent = i.kind === "activity" ? "Edit activity link" : "Edit item";
+    $("dActivityPick").hidden = true;
+    $("dFileFields").hidden = i.kind === "activity";
+    $("dName").value = i.title;
+    $("dKind").value = i.kind === "activity" ? "material" : i.kind;
+    fillWeeks($("dWeek"), i.week);
+    $("dNote").value = i.note || "";
+    setVis(i.status, i.at);
+    renderDlgFiles();
+    $("dMsg").textContent = "";
+    dlg.showModal();
+  }
+
+  function addActivity(week) {
+    const used = new Set(M.items.filter((i) => i.activity).map((i) => i.activity.id));
+    const avail = ix.activities.filter((a) => !used.has(a.id));
+    if (!avail.length) { alert("All your activities are already linked, or you haven't created one yet. Create activities on the Activities & marking page."); return; }
+    editing = { id: MS.randHex(16), week, kind: "activity", title: "", note: "", status: "published", at: null, key: MS.b64e(MS.randKey()), files: [],
+      created: now(), published: null, order: itemsOf(week).length, _new: true };
+    pending = []; removed = [];
+    $("dTitleH").textContent = `Add activity to week ${week}`;
+    $("dActivityPick").hidden = false;
+    $("dFileFields").hidden = true;
+    const sel = $("dAct");
+    sel.textContent = "";
+    for (const a of avail) sel.append(el("option", { value: a.id, text: [a.module, a.title].filter(Boolean).join(": ") + " (" + MS.pretty(a.code) + ")" }));
+    setVis("published", null);
+    $("dMsg").textContent = "";
+    dlg.showModal();
+  }
+
+  $("dAdd").onchange = () => { pending.push(...$("dAdd").files); $("dAdd").value = ""; renderDlgFiles(); };
+
+  $("df").onsubmit = (ev) => {
+    if (ev.submitter && ev.submitter.value === "cancel") return;
+    ev.preventDefault();
+    Lecturer.busy($("dSave"), "Saving…", async () => {
+      const i = editing;
+      const vis = (document.querySelector('input[name="vis"]:checked') || {}).value || "draft";
+      if (vis === "scheduled" && !$("dAt").value) return Lecturer.say($("dMsg"), "Choose when it opens.", "err");
+      try {
+        let entries = [];
+        if (i.kind === "activity" || i._new) {
+          const a = ix.activities.find((x) => x.id === $("dAct").value) || ix.activities.find((x) => i.activity && x.id === i.activity.id);
+          if (i._new) {
+            if (!a) return Lecturer.say($("dMsg"), "Choose an activity.", "err");
+            i.activity = { id: a.id, code: a.code, title: a.title };
+            i.title = a.title;
+            delete i._new;
+            M.items.push(i);
+          }
+        } else {
+          const title = $("dName").value.trim();
+          if (!title) return Lecturer.say($("dMsg"), "Give it a title.", "err");
+          const newWeek = Number($("dWeek").value);
+          if (newWeek !== i.week) { const from = i.week; i.week = newWeek; i.order = itemsOf(newWeek).length; renumber(from); }
+          Object.assign(i, { title, kind: $("dKind").value, note: $("dNote").value.trim() });
+          if (pending.length) {
+            const enc = await encryptFiles(i, pending);
+            entries.push(...enc.entries);
+            i.files = [...i.files, ...enc.list];
+          }
+          if (removed.length) {
+            entries.push(...removed.map((f) => ({ path: `m/${M.id}/f/${f}`, remove: true })));
+            i.files = i.files.filter((f) => !removed.includes(f.f));
+          }
+        }
+        const wasScheduled = i.status === "scheduled";
+        i.status = vis;
+        i.at = vis === "scheduled" ? new Date($("dAt").value).toISOString() : null;
+        if (vis !== "draft") i.published = i.published || now();
+        if (vis === "scheduled") await setKey(i);
+        else if (wasScheduled && L.SVC) L.svc("DELETE", `/admin/key?id=${i.id}`).catch(() => {});
+        dlg.close();
+        open.add(i.week);
+        renderWeeks();
+        await save(`Update ${i.title}`, entries);
+        renderMods();
+      } catch (e) {
+        Lecturer.say($("dMsg"), e.message || e.name, "err");
+      }
+    });
+  };
+
+  // ---------- start
+  Lecturer.ready("modules").then(async (l) => {
+    L = l;
+    try { ix = await L.loadIndex(); }
+    catch (e) { document.querySelector("main").prepend(el("p", { class: "err", text: e.message })); return; }
+    $("app").hidden = false;
+    renderMods();
+    const want = location.hash.slice(1);
+    if (want === "new") { $("newMod").click(); return; }
+    const m = ix.modules.find((x) => x.id === want) || (ix.modules.length === 1 ? ix.modules[0] : null);
+    if (m) openModule(m);
+    updateEmpty();
+  });
+})();
+</script>
+</body>
+</html>

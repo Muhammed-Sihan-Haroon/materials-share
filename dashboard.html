@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<title>Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="ltop"></header>
+<main class="wrap wide">
+  <div id="app" hidden>
+    <div class="row" style="align-items:center;margin-bottom:18px">
+      <h1 style="margin:0">Dashboard</h1>
+      <div class="actions">
+        <a class="btn small" href="modules.html#new">New module</a>
+        <a class="btn ghost small" href="review.html">New activity</a>
+        <a class="btn ghost small" href="admin.html">Quick share</a>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <div class="card">
+        <h2>Needs your attention</h2>
+        <div id="todo"><p class="muted">Checking submissions…</p></div>
+      </div>
+      <div class="card">
+        <h2>Coming up in the next two weeks</h2>
+        <div id="soon"></div>
+      </div>
+    </div>
+
+    <h2 style="margin:10px 0 12px">Your modules</h2>
+    <div class="stat-row" id="mods"></div>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="gh.js"></script>
+<script src="lecturer.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const el = Lecturer.el;
+  const KIND = { material: "Material", worksheet: "Worksheet", answer: "Answers", activity: "Activity" };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  document.title = "Dashboard · " + SITE.name;
+
+  function todoRow(title, detail, href, label) {
+    return el("div", { class: "todo" }, el("div", {}, el("b", { text: title }), el("span", { class: "muted", text: detail })),
+      el("a", { class: "btn small", href, text: label }));
+  }
+
+  function moduleCards(ix) {
+    const box = $("mods");
+    box.textContent = "";
+    if (!ix.modules.length) {
+      box.append(el("div", { class: "card empty" }, el("b", { text: "No modules yet" }),
+        "Create one for each course you teach. Students then use one code for the whole semester. ",
+        el("a", { href: "modules.html#new", text: "Create a module" })));
+      return;
+    }
+    for (const m of ix.modules) {
+      const cw = MS.currentWeek(m.start, m.weeks.length);
+      const pub = m.items.filter((i) => i.status === "published" || (i.status === "scheduled" && Date.parse(i.at) <= Date.now())).length;
+      const sched = m.items.filter((i) => i.status === "scheduled" && Date.parse(i.at) > Date.now()).length;
+      const drafts = m.items.filter((i) => i.status === "draft").length;
+      const acts = m.items.filter((i) => i.kind === "activity").length;
+      const num = (n, label) => el("span", {}, el("b", { text: String(n) }), label);
+      const code = el("span", { class: "code-sm" });
+      MS.tiles(code, m.code);
+      box.append(el("div", { class: "card mod-card" },
+        el("p", { class: "muted", style: "margin:0", text: m.short + (cw ? `, week ${cw} of ${m.weeks.length}` : "") }),
+        el("h2", { text: m.title }),
+        el("div", { class: "nums" }, num(pub, "published"), num(sched, "scheduled"), num(drafts, "drafts"), num(acts, "activities")),
+        el("p", { class: "muted", style: "margin:0 0 14px" }, "Student code ", code),
+        el("div", { class: "actions" },
+          el("a", { class: "btn small", href: "modules.html#" + m.id, text: "Open module" }),
+          el("button", { class: "btn ghost small", text: "Show code", onclick: () => Lecturer.present({ title: `${m.short}: ${m.title}`, code: m.code,
+            sub: "to get this module's materials, worksheets and activities all semester." }) }))));
+    }
+  }
+
+  function comingUp(ix) {
+    const box = $("soon");
+    box.textContent = "";
+    const now = Date.now(), end = now + 14 * 864e5;
+    const rows = [];
+    const modOf = new Map();
+    for (const m of ix.modules) for (const i of m.items) if (i.activity) modOf.set(i.activity.id, m.short);
+    for (const a of ix.activities) {
+      const t = Date.parse(a.deadline || "");
+      if (t >= now && t <= end && !a.closed) rows.push({ t, title: [a.module || modOf.get(a.id), a.title].filter(Boolean).join(": "), what: "Deadline", href: "review.html#a=" + a.id });
+    }
+    for (const m of ix.modules) for (const i of m.items) {
+      const t = Date.parse(i.at || "");
+      if (i.status === "scheduled" && t >= now && t <= end) rows.push({ t, title: `${m.short} week ${i.week}: ${i.title}`, what: `${KIND[i.kind]} opens`, href: "modules.html#" + m.id });
+    }
+    rows.sort((x, y) => x.t - y.t);
+    if (!rows.length) { box.append(el("p", { class: "muted", text: "No deadlines or scheduled releases in the next two weeks." })); return; }
+    for (const r of rows) box.append(todoRow(r.title, `${r.what} ${MS.fmtDate(new Date(r.t).toISOString())}`, r.href, "Open"));
+  }
+
+  async function attention(L, ix) {
+    const box = $("todo");
+    const rows = [];
+    for (const m of ix.modules) {
+      const d = m.items.filter((i) => i.status === "draft").length;
+      if (d) rows.push(todoRow(`${m.short}: ${plural(d, "draft item")}`, "Not visible to students until you publish them.", "modules.html#" + m.id, "Open"));
+    }
+    if (L.SVC) {
+      const open = ix.activities.filter((a) => !a.closed || Date.now() - Date.parse(a.created) < 60 * 864e5);
+      const results = await Promise.all(open.map(async (a) => {
+        try { return { a, j: await (await L.svc("GET", `/admin/list?a=${a.id}`)).json() }; }
+        catch (e) { return { a, err: e }; }
+      }));
+      for (const { a, j, err } of results) {
+        if (err) continue;
+        const drafted = new Map(j.drafts.map((d) => [d.r, d]));
+        const fresh = j.subs.filter((s) => !drafted.has(s.r)).length;
+        const ai = j.drafts.filter((d) => d.ai && !d.rel).length;
+        const own = j.drafts.filter((d) => !d.ai && !d.rel).length;
+        const bits = [fresh && plural(fresh, "new submission"), ai && plural(ai, "AI draft") + " to check", own && plural(own, "draft") + " not released"].filter(Boolean);
+        if (bits.length) rows.push(todoRow([a.module, a.title].filter(Boolean).join(": "), bits.join(", ") + ".", "review.html#a=" + a.id, "Review"));
+      }
+    }
+    box.textContent = "";
+    if (!rows.length) box.append(el("p", { class: "muted", text: "You're up to date. Nothing waiting for feedback or publishing." }));
+    else box.append(...rows);
+  }
+
+  Lecturer.ready("dashboard").then(async (L) => {
+    let ix;
+    try { ix = await L.loadIndex(); }
+    catch (e) { document.querySelector("main").prepend(el("p", { class: "err", text: e.message })); return; }
+    $("app").hidden = false;
+    moduleCards(ix);
+    comingUp(ix);
+    attention(L, ix);
+  });
+})();
+</script>
+</body>
+</html>
