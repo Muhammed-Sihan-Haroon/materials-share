@@ -66,9 +66,16 @@
         <label class="check"><input type="checkbox" id="aLate" checked> Accept late submissions (they're flagged as late)</label>
         <label for="aBrief">Instructions for students</label>
         <textarea id="aBrief" placeholder="What to do, what to upload, file format…"></textarea>
+        <label for="aFiles">Worksheet or files for students (optional)</label>
+        <input id="aFiles" type="file" multiple>
+        <p class="muted">Students download these from the activity page. Up to 50 MB per file.</p>
         <label for="aCrit">Feedback criteria — one per line</label>
         <textarea id="aCrit" style="min-height:100px" placeholder="Correct use of INNER and LEFT JOIN&#10;Queries return the expected rows&#10;Clear, consistently formatted SQL"></textarea>
         <label class="check"><input type="checkbox" id="aShowCrit" checked> Show criteria to students</label>
+        <label for="aNotes">Model answer or marking notes (optional, only you and the AI checker see these)</label>
+        <textarea id="aNotes" style="min-height:100px" placeholder="Expected answers, common mistakes to look for, what a good answer includes…"></textarea>
+        <label for="aNotesFile">…or upload a model answer file (Word, PDF, text or code)</label>
+        <input id="aNotesFile" type="file">
         <label for="aQc">Quick comments — one per line (only you see these)</label>
         <textarea id="aQc" style="min-height:100px" placeholder="Good use of aliases — it makes the joins easy to follow.&#10;Check which rows a LEFT JOIN keeps when there's no match."></textarea>
         <p class="actions" style="margin-top:14px">
@@ -86,6 +93,7 @@
         <div class="actions">
           <button class="btn ghost small" id="showCode">Show code</button>
           <button class="btn ghost small" id="refresh">Refresh</button>
+          <button class="btn small" id="aiAll" hidden>AI draft all new</button>
           <button class="btn ghost small" id="releaseAll">Release all drafts</button>
           <button class="btn ghost small" id="exportCsv">Export CSV</button>
           <button class="btn danger small" id="toggleClose">Close submissions</button>
@@ -111,7 +119,8 @@
         </p>
       </div>
       <div class="card sticky">
-        <h2>Feedback</h2>
+        <div class="row"><h2>Feedback</h2><button class="btn ghost small" id="aiOne" hidden>Draft with AI</button></div>
+        <p class="chip partly" id="aiBadge" hidden>AI draft — check before releasing</p>
         <div id="fCrit"></div>
         <div id="fMarkWrap" hidden>
           <label for="fMark">Mark</label>
@@ -176,7 +185,9 @@
   $("remember").checked = !!store.get("ms-conn");
 
   let gh = null, vault = null, lecturerFile = null, index = null;
-  let act = null, subs = [], pos = -1, cur = null, openSeq = 0, urls = [];
+  let act = null, subs = [], pos = -1, cur = null, openSeq = 0, urls = [], aiOn = false;
+  const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+  const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
   const busy = async (btn, label, fn) => {
     const before = btn.textContent;
@@ -229,7 +240,11 @@
     const st = $("svcStatus");
     if (!SVC) say(st, "Submissions service not set up yet: add submitUrl to config.js (README, step B).", "err");
     else {
-      try { await svc("GET", "/admin/ping"); say(st, "Submissions service connected ✓", "ok"); }
+      try {
+        const p = await (await svc("GET", "/admin/ping")).json();
+        aiOn = !!p.ai;
+        say(st, "Submissions service connected ✓" + (aiOn ? " · AI drafting on" : " · AI drafting off (add a Workers AI binding called AI to switch it on)"), "ok");
+      }
       catch (e) { say(st, e.message, "err"); }
     }
     try {
@@ -369,17 +384,38 @@
         const now = new Date().toISOString();
         const deadline = $("aDeadline").value ? new Date($("aDeadline").value).toISOString() : null;
         const outOf = Number($("aOut").value) > 0 ? Number($("aOut").value) : null;
+        const sheets = [...$("aFiles").files];
+        const big = sheets.filter((f) => f.size > 50 * 1024 * 1024);
+        if (big.length) throw new Error("too large (max 50 MB each): " + big.map((f) => f.name).join(", "));
+        let notes = $("aNotes").value.trim();
+        const nf = $("aNotesFile").files[0];
+        if (nf) {
+          say(m, "Reading model answer…");
+          const t = await extractText({ name: nf.name, data: new Uint8Array(await nf.arrayBuffer()) });
+          notes = (notes ? notes + "\n\n" : "") + `[${nf.name}]\n` + t;
+        }
+        notes = notes.slice(0, 30000);
         const a = {
           code, id: d.id, title: $("aTitle").value.trim(), module: $("aModule").value.trim(), brief: $("aBrief").value.trim(),
           deadline, late: $("aLate").checked, showCriteria: $("aShowCrit").checked, criteria: lines("aCrit"),
-          comments: lines("aQc"), outOf, created: now, closed: false,
+          comments: lines("aQc"), outOf, notes, created: now, closed: false,
         };
-        const forStudents = { title: a.title, module: a.module, brief: a.brief, deadline, criteria: a.showCriteria ? a.criteria : [] };
+        const sheetEntries = [], sheetList = [];
+        for (let i = 0; i < sheets.length; i++) {
+          say(m, `Encrypting ${sheets[i].name}…`);
+          const data = new Uint8Array(await sheets[i].arrayBuffer());
+          sheetEntries.push({ path: `a/${d.id}/w${i}.bin`, bytes: await MS.seal(d.key, data) });
+          sheetList.push({ name: sheets[i].name, type: sheets[i].type || "application/octet-stream", size: data.byteLength, f: `w${i}.bin` });
+        }
+        a.files = sheetList.map((f) => f.name);
+        const forStudents = { title: a.title, module: a.module, brief: a.brief, deadline, criteria: a.showCriteria ? a.criteria : [], files: sheetList };
+        say(m, "Publishing…");
         index = await loadIndex();
         index.activities.unshift(a);
         await gh.commit([
           { path: `a/${d.id}/meta.json`, bytes: MS.fromJSON(publicMeta(a)) },
           { path: `a/${d.id}/m.bin`, bytes: await MS.seal(d.key, MS.fromJSON(forStudents)) },
+          ...sheetEntries,
           await indexEntry(),
         ], "Add activity");
         $("newForm").reset();
@@ -423,6 +459,7 @@
     $("sTitle").textContent = a.title;
     $("toggleClose").textContent = a.closed ? "Reopen submissions" : "Close submissions";
     $("toggleClose").className = a.closed ? "btn ghost small" : "btn danger small";
+    $("aiAll").hidden = !aiOn;
     renderActs();
     $("subsCard").scrollIntoView({ behavior: "smooth", block: "start" });
     await loadSubs();
@@ -463,6 +500,7 @@
     const c = document.createElement("span");
     if (!s.draft) { c.className = "chip new"; c.textContent = "New"; }
     else if (s.draft.rel) { c.className = "chip met"; c.textContent = "Released"; }
+    else if (s.draft.ai) { c.className = "chip partly"; c.textContent = "AI draft"; }
     else { c.className = "chip partly"; c.textContent = "Draft"; }
     return c;
   }
@@ -736,8 +774,18 @@
         seg.append(l);
       }
       row.append(t, seg);
+      const why = d && d.reasons && d.reasons[i];
+      if (why) {
+        const w = document.createElement("div");
+        w.className = "muted";
+        w.style.cssText = "flex-basis:100%;font-size:.8rem";
+        w.textContent = "AI: " + why;
+        row.append(w);
+      }
       box.append(row);
     });
+    $("aiBadge").hidden = !(d && d.ai);
+    $("aiOne").hidden = !aiOn || !!(d && d.released);
     $("fMarkWrap").hidden = !act.outOf;
     $("fOut").textContent = act.outOf ? "out of " + act.outOf : "";
     $("fMark").value = d && d.mark !== null && d.mark !== undefined ? d.mark : "";
@@ -754,8 +802,8 @@
     $("withdraw").hidden = !(d && d.released);
     $("release").textContent = d && d.released ? "Save & update" : "Save & release";
     $("saveDraft").hidden = !!(d && d.released);
-    for (const id of ["saveDraft", "release", "withdraw"]) $(id).disabled = !!loading;
-    say($("fStatus"), loading ? "" : d ? (d.released ? "Released to the student " + MS.fmtDate(d.releasedAt) + "." : "Draft saved " + MS.fmtDate(d.t) + " — not visible to the student yet.") : "Not started.");
+    for (const id of ["saveDraft", "release", "withdraw", "aiOne"]) $(id).disabled = !!loading;
+    say($("fStatus"), loading ? "" : d ? (d.released ? "Released to the student " + MS.fmtDate(d.releasedAt) + "." : (d.ai ? "AI draft " : "Draft saved ") + MS.fmtDate(d.t) + " — not visible to the student yet.") : "Not started.");
   }
 
   function insertComment(text) {
@@ -788,8 +836,8 @@
     await svc("PUT", `/admin/feedback?r=${s.r}`, await MS.seal(key, MS.fromJSON(feedbackFor(s.info, d))));
   }
   async function putDraft(s, d) {
-    await svc("PUT", `/admin/draft?a=${act.id}&r=${s.r}&rel=${d.released ? 1 : 0}`, await MS.seal(vault.vk, MS.fromJSON(d)));
-    s.draft = { r: s.r, t: Date.now(), rel: !!d.released };
+    await svc("PUT", `/admin/draft?a=${act.id}&r=${s.r}&rel=${d.released ? 1 : 0}&ai=${d.ai ? 1 : 0}`, await MS.seal(vault.vk, MS.fromJSON(d)));
+    s.draft = { r: s.r, t: Date.now(), rel: !!d.released, ai: !!d.ai };
   }
 
   async function save(release) {
@@ -805,7 +853,8 @@
     const now = new Date().toISOString();
     const wasReleased = cur.draft && cur.draft.released;
     const keep = release || wasReleased;
-    const d = { ...f, t: now, released: !!keep, releasedAt: keep ? (release ? now : cur.draft.releasedAt) : null };
+    const d = { ...f, t: now, released: !!keep, releasedAt: keep ? (release ? now : cur.draft.releasedAt) : null, ai: false,
+      reasons: cur.draft && cur.draft.reasons, aiModel: cur.draft && cur.draft.aiModel };
     try {
       if (keep) await putFeedback(cur.s, d);
       await putDraft(cur.s, d);
@@ -841,7 +890,9 @@
     const todo = subs.filter((s) => s.draft && !s.draft.rel);
     const m = $("sMsg");
     if (!todo.length) return say(m, "No unreleased drafts.");
-    if (!confirm(`Release feedback to ${todo.length} student${todo.length === 1 ? "" : "s"}?`)) return;
+    const unreviewed = todo.filter((s) => s.draft.ai).length;
+    if (!confirm(`Release feedback to ${todo.length} student${todo.length === 1 ? "" : "s"}?` +
+      (unreviewed ? `\n\n${unreviewed} of these ${unreviewed === 1 ? "is an AI draft" : "are AI drafts"} you haven't edited yet. Students will see ${unreviewed === 1 ? "it" : "them"} as written.` : ""))) return;
     let done = 0;
     try {
       for (const s of todo) {
@@ -849,6 +900,7 @@
         const d = await getDraft(s);
         d.released = true;
         d.releasedAt = new Date().toISOString();
+        d.ai = false;
         await putFeedback(s, d);
         await putDraft(s, d);
         if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
@@ -858,6 +910,127 @@
       say(m, e.message || e.name, "err");
     }
     renderSubs();
+  });
+
+  // ---------- AI drafts (text is extracted here, in your browser; only text is sent to the checker)
+  const srcText = (v) => (Array.isArray(v) ? v.join("") : v || "");
+  const unxml = (t) => t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  const byNum = (a, b) => (parseInt(a.replace(/\D+/g, "")) || 0) - (parseInt(b.replace(/\D+/g, "")) || 0);
+
+  async function extractText(f) {
+    const name = f.name.toLowerCase();
+    const d = f.data;
+    try {
+      if (name.endsWith(".docx")) {
+        await loadScript(MAMMOTH);
+        return (await mammoth.extractRawText({ arrayBuffer: d.slice().buffer })).value;
+      }
+      if (name.endsWith(".pdf")) {
+        await loadScript(PDFJS);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+        const doc = await pdfjsLib.getDocument({ data: d.slice() }).promise;
+        const out = [];
+        for (let p = 1; p <= Math.min(doc.numPages, 40); p++) {
+          const tc = await (await doc.getPage(p)).getTextContent();
+          out.push(tc.items.map((i) => i.str).join(" "));
+        }
+        const t = out.join("\n\n").trim();
+        return t || "[this PDF has no readable text — it may be a scan]";
+      }
+      if (/\.(pptx|xlsx)$/.test(name)) {
+        await loadScript(JSZIP);
+        const z = await JSZip.loadAsync(d);
+        const ppt = name.endsWith(".pptx");
+        const parts = Object.keys(z.files).filter((p) => (ppt ? /^ppt\/slides\/slide\d+\.xml$/ : /^xl\/(sharedStrings|worksheets\/sheet\d+)\.xml$/).test(p)).sort(byNum);
+        const out = [];
+        for (const p of parts) {
+          const x = await z.file(p).async("string");
+          const re = ppt ? /<a:t>([^<]*)<\/a:t>/g : /<(?:t|v)(?:\s[^>]*)?>([^<]*)<\/(?:t|v)>/g;
+          out.push(`[${p.split("/").pop()}] ` + [...x.matchAll(re)].map((m) => unxml(m[1])).join(" "));
+        }
+        return out.join("\n");
+      }
+      if (name.endsWith(".ipynb")) {
+        const nb = MS.toJSON(d);
+        return (nb.cells || []).map((c) => {
+          const outs = (c.outputs || []).map((o) => {
+            const t = o.text || (o.data && o.data["text/plain"]) || (o.ename ? `${o.ename}: ${o.evalue}` : "");
+            return t ? "\n[output]\n" + srcText(t) : "";
+          }).join("");
+          return `[${c.cell_type}]\n` + srcText(c.source) + outs;
+        }).join("\n\n");
+      }
+      if (name.endsWith(".zip")) {
+        await loadScript(JSZIP);
+        const z = await JSZip.loadAsync(d);
+        const out = [];
+        let total = 0;
+        for (const [p, e] of Object.entries(z.files)) {
+          if (e.dir) continue;
+          if (TEXT.test(p) && total < 40000) {
+            const t = (await e.async("string")).slice(0, 8000);
+            out.push(`--- ${p} ---\n${t}`);
+            total += t.length;
+          } else out.push(`--- ${p} (not read) ---`);
+        }
+        return out.join("\n");
+      }
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return "[image file: the checker can't read images, look at it yourself]";
+      if (TEXT.test(name) || looksText(d)) return MS.text(d);
+      return "[file type the checker can't read]";
+    } catch (e) {
+      return `[couldn't read this file: ${e.message || e.name}]`;
+    }
+  }
+
+  async function aiDraftFor(s, pkg) {
+    if (!pkg) pkg = MS.unpack(await MS.openWith(vault.priv, await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+    const files = [];
+    for (const f of pkg.files) files.push({ name: f.name, text: (await extractText(f)).slice(0, 14000) });
+    const body = JSON.stringify({
+      activity: { title: act.title, module: act.module, brief: act.brief, criteria: act.criteria, outOf: act.outOf, notes: act.notes || "" },
+      submission: { note: pkg.header.note || "", files },
+    });
+    const r = await (await svc("POST", "/admin/ai", body)).json();
+    const d = { criteria: r.criteria, mark: r.mark, comment: r.comment, reasons: r.reasons, aiModel: r.model, ai: true,
+      t: new Date().toISOString(), released: false, releasedAt: null };
+    await putDraft(s, d);
+    return d;
+  }
+
+  $("aiOne").onclick = () => cur && busy($("aiOne"), "Drafting…", async () => {
+    if (cur.draft && !cur.draft.ai && (cur.draft.comment || "").trim() && !confirm("Replace your draft with an AI draft?")) return;
+    say($("fStatus"), "Reading the submission and drafting feedback… (10–30 seconds)");
+    try {
+      const s = cur.s;
+      const d = await aiDraftFor(s, cur.pkg);
+      if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
+      renderSubs();
+    } catch (e) {
+      say($("fStatus"), e.message || e.name, "err");
+    }
+  });
+
+  $("aiAll").onclick = () => busy($("aiAll"), "Drafting…", async () => {
+    const todo = subs.filter((s) => !s.draft && !s.earlier);
+    const m = $("sMsg");
+    if (!todo.length) return say(m, "Every current submission already has a draft or feedback.");
+    if (!confirm(`Draft AI feedback for ${todo.length} new submission${todo.length === 1 ? "" : "s"}?\n\nNothing is sent to students until you release it.`)) return;
+    let done = 0, failed = 0;
+    for (const s of todo) {
+      say(m, `Drafting ${done + failed + 1} of ${todo.length}… (about 10–30 seconds each)`);
+      try {
+        const d = await aiDraftFor(s);
+        done++;
+        if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
+        renderSubs();
+      } catch (e) {
+        if (e.status === 429 || e.status === 501) { say(m, e.message + (done ? ` (${done} drafted before stopping.)` : ""), "err"); renderSubs(); return; }
+        failed++;
+      }
+    }
+    renderSubs();
+    say(m, `Drafted ${done}${failed ? `, ${failed} failed (open them and use Draft with AI to retry)` : ""}. Open each one to check it, then release.`, failed ? "err" : "ok");
   });
 
   // ---------- CSV
