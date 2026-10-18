@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lecturer · Class Materials</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header><span id="site">Class Materials</span><span class="links"><a href="review.html">Activities &amp; marking</a><a href="./">Student page</a></span></header>
+
+  <div class="card" id="conn">
+    <h2>GitHub connection</h2>
+    <div class="grid">
+      <div><label for="repo">Repository (owner/name)</label><input id="repo" placeholder="your-username/materials"></div>
+      <div><label for="branch">Branch</label><input id="branch" value="main"></div>
+    </div>
+    <label for="token">Access token</label>
+    <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+    <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
+    <p class="muted">Use a fine-grained token limited to this one repository with <b>Contents: Read and write</b>. It is only ever sent to api.github.com.</p>
+    <button class="btn" id="connect">Connect</button>
+    <span id="connStatus" class="muted" style="margin-left:8px"></span>
+  </div>
+
+  <div class="card">
+    <h2>New share</h2>
+    <form id="form">
+      <div class="grid">
+        <div><label for="title">Title</label><input id="title" required maxlength="120" placeholder="Week 3 — SQL Joins"></div>
+        <div><label for="module">Module (optional)</label><input id="module" maxlength="40" placeholder="COM106"></div>
+        <div><label for="days">Available for</label>
+          <select id="days">
+            <option value="1">1 day</option><option value="7" selected>1 week</option>
+            <option value="30">30 days</option><option value="120">Semester (~4 months)</option>
+            <option value="0">Never expires</option>
+          </select></div>
+      </div>
+      <label for="files">Files</label>
+      <input id="files" type="file" multiple required>
+      <p class="muted">Up to 50 MB per file. Files are encrypted on this computer before upload.</p>
+      <button class="btn" id="create">Encrypt, upload &amp; create code</button>
+      <p class="muted" id="progress"></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Shares created on this device</h2>
+    <div id="list"></div>
+  </div>
+</div>
+
+<div class="overlay" id="present" hidden>
+  <p class="muted" id="pTitle" style="font-size:1.3rem"></p>
+  <p class="step">Go to</p>
+  <div class="url" id="pHost"></div>
+  <p class="step">and enter</p>
+  <div class="big" id="pCode"></div>
+  <p class="muted" style="margin-top:20px">or open <span class="mono" id="pLink"></span></p>
+  <p class="muted" id="pNote"></p>
+  <p style="margin-top:32px" class="actions" >
+    <span style="margin:0 auto" class="actions">
+      <button class="btn ghost" id="copy">Copy link</button>
+      <button class="btn" id="close">Back to dashboard</button>
+    </span>
+  </p>
+</div>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const MAX_FILE = 50 * 1024 * 1024;
+  const siteUrl = new URL("./", location.href);
+  const siteHost = (siteUrl.host + siteUrl.pathname).replace(/\/$/, "");
+
+  document.title = "Lecturer · " + SITE.name;
+  $("site").textContent = SITE.name + " · Lecturer";
+
+  // ---------- storage (wrapped: may be unavailable)
+  const store = {
+    get(k, s) { try { return JSON.parse((s || localStorage).getItem(k)); } catch { return null; } },
+    set(k, v, s) { try { (s || localStorage).setItem(k, JSON.stringify(v)); } catch {} },
+    del(k, s) { try { (s || localStorage).removeItem(k); } catch {} },
+  };
+
+  let conn = store.get("ms-conn") || store.get("ms-conn", sessionStorage) || {};
+  $("repo").value = conn.repo || "";
+  $("branch").value = conn.branch || "main";
+  $("token").value = conn.token || "";
+  $("remember").checked = !!store.get("ms-conn");
+
+  // ---------- GitHub API
+  async function gh(path, opts = {}) {
+    const headers = {
+      Authorization: "Bearer " + conn.token,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+    if (opts.body) headers["Content-Type"] = "application/json";
+    const r = await fetch("https://api.github.com/repos/" + conn.repo + path, { ...opts, headers });
+    if (!r.ok) {
+      let msg = "GitHub " + r.status;
+      try { msg += ": " + (await r.json()).message; } catch {}
+      const err = new Error(msg);
+      err.status = r.status;
+      throw err;
+    }
+    return r.status === 204 ? null : r.json();
+  }
+
+  function b64(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  // One commit for the whole change, so Pages rebuilds once.
+  async function commit(entries, message, onStep) {
+    const ref = await gh("/git/ref/heads/" + encodeURIComponent(conn.branch));
+    const parent = ref.object.sha;
+    const head = await gh("/git/commits/" + parent);
+    const tree = [];
+    let i = 0;
+    for (const e of entries) {
+      if (e.remove) {
+        tree.push({ path: e.path, mode: "100644", type: "blob", sha: null });
+        continue;
+      }
+      onStep && onStep(++i);
+      const blob = await gh("/git/blobs", { method: "POST", body: JSON.stringify({ content: b64(e.bytes), encoding: "base64" }) });
+      tree.push({ path: e.path, mode: "100644", type: "blob", sha: blob.sha });
+    }
+    const t = await gh("/git/trees", { method: "POST", body: JSON.stringify({ base_tree: head.tree.sha, tree }) });
+    const c = await gh("/git/commits", { method: "POST", body: JSON.stringify({ message, tree: t.sha, parents: [parent] }) });
+    await gh("/git/refs/heads/" + encodeURIComponent(conn.branch), { method: "PATCH", body: JSON.stringify({ sha: c.sha }) });
+  }
+
+  // ---------- connection
+  $("connect").onclick = async () => {
+    conn = { repo: $("repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, ""),
+             branch: $("branch").value.trim() || "main", token: $("token").value.trim() };
+    store.del("ms-conn");
+    store.del("ms-conn", sessionStorage);
+    store.set("ms-conn", conn, $("remember").checked ? localStorage : sessionStorage);
+    await checkConn();
+  };
+
+  async function checkConn() {
+    const s = $("connStatus");
+    if (!conn.repo || !conn.token) { s.textContent = "Not connected."; return false; }
+    s.className = "muted";
+    s.textContent = "Checking…";
+    try {
+      const repo = await gh("");
+      if (!repo.permissions || !repo.permissions.push) throw new Error("token can't write to this repository");
+      await gh("/git/ref/heads/" + encodeURIComponent(conn.branch));
+      s.className = "ok";
+      s.textContent = "Connected to " + repo.full_name + " ✓";
+      return true;
+    } catch (e) {
+      s.className = "err";
+      s.textContent = "Couldn't connect: " + e.message;
+      return false;
+    }
+  }
+
+  // ---------- shares list (this device only — codes can't be recovered from the repo)
+  const loadShares = () => store.get("ms-shares") || [];
+  const saveShares = (l) => store.set("ms-shares", l);
+
+  function renderList() {
+    const list = loadShares();
+    const box = $("list");
+    box.textContent = "";
+    if (!list.length) {
+      box.innerHTML = '<p class="muted">Nothing shared from this device yet.</p>';
+      return;
+    }
+    const t = document.createElement("table");
+    t.innerHTML = "<tr><th>Code</th><th>Title</th><th>Files</th><th>Expires</th><th></th></tr>";
+    for (const s of list) {
+      const tr = document.createElement("tr");
+      const expired = s.expires && new Date(s.expires) < new Date();
+      const cells = [
+        MS.pretty(s.code) + (expired ? " (expired)" : ""),
+        (s.title || "") + (s.module ? " · " + s.module : ""),
+        s.files + " · " + MS.sizeText(s.size),
+        s.expires ? new Date(s.expires).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Never",
+      ];
+      cells.forEach((v, i) => {
+        const td = document.createElement("td");
+        td.textContent = v;
+        if (i === 0) td.className = "mono";
+        tr.append(td);
+      });
+      const td = document.createElement("td");
+      const wrap = document.createElement("div");
+      wrap.className = "actions";
+      const show = button("Show", "btn small", () => present(s));
+      const del = button("Delete", "btn danger small", () => removeShare(s, del));
+      wrap.append(show, del);
+      td.append(wrap);
+      tr.append(td);
+      t.append(tr);
+    }
+    box.append(t);
+  }
+
+  function button(text, cls, fn) {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.className = cls;
+    b.onclick = fn;
+    return b;
+  }
+
+  async function removeShare(s, btn) {
+    if (!confirm("Delete " + MS.pretty(s.code) + " (" + s.title + ")? Students will no longer be able to open it.")) return;
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+    try {
+      let items = [];
+      try {
+        items = await gh("/contents/s/" + s.id + "?ref=" + encodeURIComponent(conn.branch));
+      } catch (e) {
+        if (e.status !== 404) throw e; // already gone
+      }
+      if (items.length) await commit(items.map((it) => ({ path: it.path, remove: true })), "Remove share");
+      saveShares(loadShares().filter((x) => x.code !== s.code));
+      renderList();
+    } catch (e) {
+      alert("Couldn't delete: " + e.message);
+      btn.disabled = false;
+      btn.textContent = "Delete";
+    }
+  }
+
+  // ---------- create
+  $("form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const p = $("progress");
+    p.className = "muted";
+    const picked = [...$("files").files];
+    const big = picked.filter((f) => f.size > MAX_FILE);
+    if (big.length) { p.className = "err"; p.textContent = "Too large (max 50 MB each): " + big.map((f) => f.name).join(", "); return; }
+    if (!(await checkConn())) { p.className = "err"; p.textContent = "Connect to GitHub first."; return; }
+
+    const btn = $("create");
+    btn.disabled = true;
+    try {
+      p.textContent = "Encrypting…";
+      const files = [];
+      for (const f of picked) files.push({ name: f.name, type: f.type, data: await f.arrayBuffer() });
+      const share = await MS.buildShare({
+        salt: SITE.salt, title: $("title").value.trim(), module: $("module").value.trim(),
+        days: Number($("days").value), files,
+      });
+      await commit(share.entries, "Add share", (i) => { p.textContent = `Uploading ${Math.min(i, files.length)} of ${files.length}…`; });
+      const rec = {
+        code: share.code, id: share.id, title: share.manifest.title, module: share.manifest.module,
+        created: share.manifest.created, expires: share.expires, files: files.length,
+        size: files.reduce((a, f) => a + f.data.byteLength, 0),
+      };
+      saveShares([rec, ...loadShares()]);
+      renderList();
+      $("form").reset();
+      p.textContent = "";
+      present(rec, true);
+    } catch (e) {
+      p.className = "err";
+      p.textContent = e.status === 403
+        ? "Upload failed: your token can read this repository but not write to it. On GitHub: Settings → Developer settings → Fine-grained tokens → your token → Edit → set Repository access to this repo and Contents to \"Read and write\" → Update, then try again."
+        : "Upload failed: " + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // ---------- presenter
+  function present(s, fresh) {
+    $("pTitle").textContent = [s.module, s.title].filter(Boolean).join(" · ");
+    $("pHost").textContent = siteHost;
+    $("pCode").textContent = MS.pretty(s.code);
+    $("pLink").textContent = siteHost + "/#" + s.code;
+    $("pNote").textContent = fresh ? "Live in about a minute while GitHub publishes it." : "";
+    $("present").hidden = false;
+    $("copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(siteUrl.href + "#" + s.code); $("copy").textContent = "Copied ✓"; }
+      catch { $("copy").textContent = siteUrl.href + "#" + s.code; }
+    };
+  }
+  $("close").onclick = () => { $("present").hidden = true; $("copy").textContent = "Copy link"; };
+
+  renderList();
+  if (conn.repo && conn.token) checkConn();
+})();
+</script>
+</body>
+</html>

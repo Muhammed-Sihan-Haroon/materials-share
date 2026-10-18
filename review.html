@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Activities &amp; marking</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap wide">
+  <header><span id="site">Activities &amp; marking</span>
+    <span class="links"><a href="admin.html">Materials</a><a href="./">Student page</a></span></header>
+
+  <!-- connection -->
+  <div class="card" id="conn">
+    <h2>GitHub connection</h2>
+    <div class="grid">
+      <div><label for="repo">Repository (owner/name)</label><input id="repo" placeholder="your-username/materials"></div>
+      <div><label for="branch">Branch</label><input id="branch" value="main"></div>
+    </div>
+    <label for="token">Access token</label>
+    <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+    <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
+    <button class="btn" id="connect">Connect</button>
+    <span id="connStatus" class="muted" style="margin-left:8px"></span>
+    <p class="muted" id="svcStatus"></p>
+  </div>
+
+  <!-- passphrase -->
+  <div class="card narrow" id="lock" hidden>
+    <div id="setup" hidden>
+      <h2>Create your marking passphrase</h2>
+      <p class="muted">Student work is encrypted so that only this passphrase can open it. Pick one you won't forget — <b>if it's lost, submissions can't be recovered</b> by anyone.</p>
+      <label for="p1">Passphrase (at least 12 characters)</label>
+      <input type="password" id="p1" autocomplete="new-password">
+      <label for="p2">Repeat passphrase</label>
+      <input type="password" id="p2" autocomplete="new-password">
+      <button class="btn full" id="createKey">Create</button>
+    </div>
+    <form id="unlock" hidden>
+      <h2>Unlock marking</h2>
+      <label for="pw">Marking passphrase</label>
+      <input type="password" id="pw" autocomplete="current-password">
+      <button class="btn full" id="unlockBtn">Unlock</button>
+    </form>
+    <p id="lockMsg" class="muted"></p>
+  </div>
+
+  <div id="app" hidden>
+    <!-- activities -->
+    <div class="card">
+      <div class="row"><h2>Activities</h2><button class="btn small" id="newBtn">New activity</button></div>
+      <div id="acts"></div>
+    </div>
+
+    <div class="card" id="newCard" hidden>
+      <h2>New activity</h2>
+      <form id="newForm">
+        <div class="grid">
+          <div><label for="aTitle">Title</label><input id="aTitle" maxlength="120" required placeholder="Week 3 seminar — SQL joins"></div>
+          <div><label for="aModule">Module (optional)</label><input id="aModule" maxlength="40" placeholder="COM106"></div>
+          <div><label for="aDeadline">Deadline (optional)</label><input id="aDeadline" type="datetime-local"></div>
+          <div><label for="aOut">Mark out of (optional)</label><input id="aOut" type="number" min="1" step="1" placeholder="No mark"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="aLate" checked> Accept late submissions (they're flagged as late)</label>
+        <label for="aBrief">Instructions for students</label>
+        <textarea id="aBrief" placeholder="What to do, what to upload, file format…"></textarea>
+        <label for="aCrit">Feedback criteria — one per line</label>
+        <textarea id="aCrit" style="min-height:100px" placeholder="Correct use of INNER and LEFT JOIN&#10;Queries return the expected rows&#10;Clear, consistently formatted SQL"></textarea>
+        <label class="check"><input type="checkbox" id="aShowCrit" checked> Show criteria to students</label>
+        <label for="aQc">Quick comments — one per line (only you see these)</label>
+        <textarea id="aQc" style="min-height:100px" placeholder="Good use of aliases — it makes the joins easy to follow.&#10;Check which rows a LEFT JOIN keeps when there's no match."></textarea>
+        <p class="actions" style="margin-top:14px">
+          <button class="btn" id="createAct">Create activity &amp; code</button>
+          <button class="btn ghost" type="button" id="cancelNew">Cancel</button>
+        </p>
+        <p id="newMsg" class="muted"></p>
+      </form>
+    </div>
+
+    <!-- submissions -->
+    <div class="card" id="subsCard" hidden>
+      <div class="row">
+        <div><p class="muted" id="sMod" style="margin:0"></p><h2 id="sTitle" style="margin:0"></h2><p class="muted" id="sInfo" style="margin:4px 0 0"></p></div>
+        <div class="actions">
+          <button class="btn ghost small" id="showCode">Show code</button>
+          <button class="btn ghost small" id="refresh">Refresh</button>
+          <button class="btn ghost small" id="releaseAll">Release all drafts</button>
+          <button class="btn ghost small" id="exportCsv">Export CSV</button>
+          <button class="btn danger small" id="toggleClose">Close submissions</button>
+        </div>
+      </div>
+      <p id="sMsg" class="muted"></p>
+      <div id="subs" style="overflow-x:auto"></div>
+    </div>
+
+    <!-- review -->
+    <div class="split" id="review" hidden>
+      <div class="card">
+        <div class="row">
+          <div><h2 id="rName" style="margin:0"></h2><p class="muted" id="rInfo" style="margin:4px 0 0"></p></div>
+          <div class="actions"><button class="btn ghost small" id="prev">← Previous</button><button class="btn ghost small" id="next">Next →</button></div>
+        </div>
+        <div class="brief muted" id="rNote" hidden></div>
+        <div class="tabs" id="rTabs"></div>
+        <div class="preview" id="rPreview"></div>
+        <p class="actions" style="margin-top:10px">
+          <button class="btn ghost small" id="dlOne">Download this file</button>
+          <button class="btn ghost small" id="dlAll">Download all</button>
+        </p>
+      </div>
+      <div class="card sticky">
+        <h2>Feedback</h2>
+        <div id="fCrit"></div>
+        <div id="fMarkWrap" hidden>
+          <label for="fMark">Mark</label>
+          <div style="display:flex;gap:8px;align-items:center"><input type="number" id="fMark" min="0" step="0.5" style="max-width:120px"><span class="muted" id="fOut"></span></div>
+        </div>
+        <label for="fText">Comments</label>
+        <div class="qc" id="fQc"></div>
+        <textarea id="fText" style="min-height:160px"></textarea>
+        <p class="actions" style="margin-top:12px">
+          <button class="btn ghost" id="saveDraft">Save draft</button>
+          <button class="btn" id="release">Save &amp; release</button>
+          <button class="btn danger" id="withdraw" hidden>Withdraw</button>
+        </p>
+        <p class="muted" id="fStatus"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="present" hidden>
+  <p class="muted" id="pTitle" style="font-size:1.3rem"></p>
+  <p class="step">Go to</p>
+  <div class="url" id="pHost"></div>
+  <p class="step">and enter</p>
+  <div class="big" id="pCode"></div>
+  <p class="muted" style="margin-top:20px" id="pSub"></p>
+  <p class="muted" id="pNote"></p>
+  <p class="actions" style="justify-content:center;margin-top:32px">
+    <button class="btn ghost" id="pCopy">Copy link</button>
+    <button class="btn" id="pClose">Back</button>
+  </p>
+</div>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="gh.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const SVC = (SITE.submitUrl || "").replace(/\/+$/, "");
+  const siteUrl = new URL("./", location.href);
+  const siteHost = (siteUrl.host + siteUrl.pathname).replace(/\/$/, "");
+  const LABEL = { met: "Met", partly: "Partly met", not: "Not yet" };
+  const MAMMOTH = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
+  const JSZIP = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+  const TEXT = /\.(txt|md|py|java|js|mjs|ts|jsx|tsx|html?|css|scss|json|sql|xml|ya?ml|c|h|cpp|hpp|cs|php|rb|go|rs|kt|swift|sh|bat|ps1|r|csv|tsv|log|ini|cfg|toml|env|gitignore|dockerfile)$/i;
+
+  document.title = "Activities & marking · " + SITE.name;
+  $("site").textContent = SITE.name + " · Activities & marking";
+
+  const store = {
+    get(k, s) { try { return JSON.parse((s || localStorage).getItem(k)); } catch { return null; } },
+    set(k, v, s) { try { (s || localStorage).setItem(k, JSON.stringify(v)); } catch {} },
+    del(k, s) { try { (s || localStorage).removeItem(k); } catch {} },
+  };
+
+  let conn = store.get("ms-conn") || store.get("ms-conn", sessionStorage) || {};
+  $("repo").value = conn.repo || "";
+  $("branch").value = conn.branch || "main";
+  $("token").value = conn.token || "";
+  $("remember").checked = !!store.get("ms-conn");
+
+  let gh = null, vault = null, lecturerFile = null, index = null;
+  let act = null, subs = [], pos = -1, cur = null, openSeq = 0, urls = [];
+
+  const busy = async (btn, label, fn) => {
+    const before = btn.textContent;
+    btn.disabled = true;
+    if (label) btn.textContent = label;
+    try { return await fn(); } finally { btn.disabled = false; if (!label || btn.textContent === label) btn.textContent = before; }
+  };
+  const say = (el, msg, cls) => { el.className = cls || "muted"; el.textContent = msg; };
+
+  // ---------- submissions service
+  async function svc(method, path, body) {
+    if (!SVC) throw new Error("The submissions service isn't set up yet — add submitUrl to config.js (see README).");
+    let r;
+    try {
+      r = await fetch(SVC + path, { method, body, cache: "no-store", headers: { Authorization: "Bearer " + conn.token } });
+    } catch {
+      throw new Error("Couldn't reach the submissions service at " + SVC);
+    }
+    if (!r.ok) {
+      let m = "Submissions service " + r.status;
+      try { m += ": " + (await r.json()).error; } catch {}
+      const e = new Error(m);
+      e.status = r.status;
+      throw e;
+    }
+    return r;
+  }
+
+  // ---------- connect
+  $("connect").onclick = () => {
+    conn = { repo: $("repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, ""),
+             branch: $("branch").value.trim() || "main", token: $("token").value.trim() };
+    store.del("ms-conn");
+    store.del("ms-conn", sessionStorage);
+    store.set("ms-conn", conn, $("remember").checked ? localStorage : sessionStorage);
+    afterConnect();
+  };
+
+  async function afterConnect() {
+    const s = $("connStatus");
+    if (!conn.repo || !conn.token) { say(s, "Not connected."); return; }
+    say(s, "Checking…");
+    gh = GH.create(conn);
+    try {
+      say(s, "Connected to " + (await gh.check()) + " ✓", "ok");
+    } catch (e) {
+      say(s, "Couldn't connect: " + e.message, "err");
+      return;
+    }
+    const st = $("svcStatus");
+    if (!SVC) say(st, "Submissions service not set up yet: add submitUrl to config.js (README, step B).", "err");
+    else {
+      try { await svc("GET", "/admin/ping"); say(st, "Submissions service connected ✓", "ok"); }
+      catch (e) { say(st, e.message, "err"); }
+    }
+    try {
+      lecturerFile = await gh.getJSON("keys/lecturer.json");
+    } catch (e) {
+      say($("lockMsg"), e.message, "err");
+    }
+    if (vault) return;
+    $("lock").hidden = false;
+    $("setup").hidden = !!lecturerFile;
+    $("unlock").hidden = !lecturerFile;
+    (lecturerFile ? $("pw") : $("p1")).focus();
+  }
+
+  // ---------- passphrase
+  $("createKey").onclick = () => busy($("createKey"), "Creating…", async () => {
+    const a = $("p1").value, b = $("p2").value, m = $("lockMsg");
+    if (a.length < 12) return say(m, "Use at least 12 characters.", "err");
+    if (a !== b) return say(m, "The two passphrases don't match.", "err");
+    try {
+      const k = await MS.createLecturerKeys(a);
+      index = { v: 1, activities: [] };
+      await gh.commit([
+        { path: "keys/lecturer.json", bytes: MS.fromJSON(k.file) },
+        { path: "keys/index.bin", bytes: await MS.seal(k.vk, MS.fromJSON(index)) },
+      ], "Set up marking key");
+      lecturerFile = k.file;
+      vault = k;
+      openApp();
+    } catch (e) {
+      say(m, "Couldn't save: " + e.message, "err");
+    }
+  });
+
+  $("unlock").onsubmit = (ev) => {
+    ev.preventDefault();
+    busy($("unlockBtn"), "Unlocking…", async () => {
+      try {
+        vault = await MS.unlockLecturer(lecturerFile, $("pw").value);
+      } catch {
+        return say($("lockMsg"), "That passphrase didn't work.", "err");
+      }
+      try {
+        index = await loadIndex();
+        openApp();
+      } catch (e) {
+        say($("lockMsg"), e.message, "err");
+      }
+    });
+  };
+
+  async function loadIndex() {
+    const b = await gh.getFile("keys/index.bin");
+    return b ? MS.toJSON(await MS.unseal(vault.vk, b)) : { v: 1, activities: [] };
+  }
+  const indexEntry = async () => ({ path: "keys/index.bin", bytes: await MS.seal(vault.vk, MS.fromJSON(index)) });
+  const publicMeta = (a) => ({ v: 1, created: a.created, deadline: a.deadline, late: a.late, closed: a.closed });
+
+  function openApp() {
+    $("pw").value = $("p1").value = $("p2").value = "";
+    $("lock").hidden = true;
+    $("conn").hidden = true;
+    $("app").hidden = false;
+    renderActs();
+  }
+
+  // ---------- activities
+  function stateChip(a) {
+    const st = MS.activityState(a);
+    const c = document.createElement("span");
+    c.className = "chip " + ({ open: "met", late: "partly", closed: "" })[st];
+    c.textContent = ({ open: "Open", late: "Open · late", closed: "Closed" })[st];
+    return c;
+  }
+
+  function renderActs() {
+    const box = $("acts");
+    box.textContent = "";
+    if (!index.activities.length) {
+      box.innerHTML = '<p class="muted">No activities yet. Create one and show its code in class; students submit with it.</p>';
+      return;
+    }
+    const t = document.createElement("table");
+    t.innerHTML = "<tr><th>Code</th><th>Activity</th><th>Due</th><th>Status</th><th></th></tr>";
+    for (const a of index.activities) {
+      const tr = document.createElement("tr");
+      tr.className = "click" + (act && act.id === a.id ? " sel" : "");
+      const cells = [MS.pretty(a.code), [a.module, a.title].filter(Boolean).join(" · "), a.deadline ? MS.fmtDate(a.deadline) : "—"];
+      cells.forEach((v, i) => {
+        const td = document.createElement("td");
+        td.textContent = v;
+        if (i === 0) td.className = "mono";
+        tr.append(td);
+      });
+      const st = document.createElement("td");
+      st.append(stateChip(a));
+      const go = document.createElement("td");
+      const b = document.createElement("button");
+      b.className = "btn small";
+      b.textContent = "Submissions";
+      go.append(b);
+      tr.append(st, go);
+      tr.onclick = () => openActivity(a);
+      t.append(tr);
+    }
+    box.append(t);
+  }
+
+  $("newBtn").onclick = () => { $("newCard").hidden = false; $("aTitle").focus(); };
+  $("cancelNew").onclick = () => { $("newCard").hidden = true; };
+
+  const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
+
+  $("newForm").onsubmit = (ev) => {
+    ev.preventDefault();
+    busy($("createAct"), "Creating…", async () => {
+      const m = $("newMsg");
+      try {
+        const code = MS.newCode();
+        const d = await MS.derive(code, SITE.salt);
+        const now = new Date().toISOString();
+        const deadline = $("aDeadline").value ? new Date($("aDeadline").value).toISOString() : null;
+        const outOf = Number($("aOut").value) > 0 ? Number($("aOut").value) : null;
+        const a = {
+          code, id: d.id, title: $("aTitle").value.trim(), module: $("aModule").value.trim(), brief: $("aBrief").value.trim(),
+          deadline, late: $("aLate").checked, showCriteria: $("aShowCrit").checked, criteria: lines("aCrit"),
+          comments: lines("aQc"), outOf, created: now, closed: false,
+        };
+        const forStudents = { title: a.title, module: a.module, brief: a.brief, deadline, criteria: a.showCriteria ? a.criteria : [] };
+        index = await loadIndex();
+        index.activities.unshift(a);
+        await gh.commit([
+          { path: `a/${d.id}/meta.json`, bytes: MS.fromJSON(publicMeta(a)) },
+          { path: `a/${d.id}/m.bin`, bytes: await MS.seal(d.key, MS.fromJSON(forStudents)) },
+          await indexEntry(),
+        ], "Add activity");
+        $("newForm").reset();
+        $("aLate").checked = $("aShowCrit").checked = true;
+        $("newCard").hidden = true;
+        say(m, "");
+        renderActs();
+        present(a, true);
+        openActivity(a);
+      } catch (e) {
+        say(m, "Couldn't create: " + e.message, "err");
+      }
+    });
+  };
+
+  // ---------- presenter
+  function present(a, fresh) {
+    $("pTitle").textContent = [a.module, a.title].filter(Boolean).join(" · ");
+    $("pHost").textContent = siteHost;
+    $("pCode").textContent = MS.pretty(a.code);
+    $("pSub").textContent = "to see the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "");
+    $("pNote").textContent = fresh ? "Live in about a minute while GitHub publishes it." : "";
+    $("present").hidden = false;
+    $("pCopy").textContent = "Copy link";
+    $("pCopy").onclick = async () => {
+      try { await navigator.clipboard.writeText(siteUrl.href + "#" + a.code); $("pCopy").textContent = "Copied ✓"; }
+      catch { $("pCopy").textContent = siteUrl.href + "#" + a.code; }
+    };
+  }
+  $("pClose").onclick = () => { $("present").hidden = true; };
+  $("showCode").onclick = () => act && present(act);
+
+  // ---------- submissions
+  async function openActivity(a) {
+    act = a;
+    pos = -1;
+    cur = null;
+    $("review").hidden = true;
+    $("subsCard").hidden = false;
+    $("sMod").textContent = a.module || "";
+    $("sTitle").textContent = a.title;
+    $("toggleClose").textContent = a.closed ? "Reopen submissions" : "Close submissions";
+    $("toggleClose").className = a.closed ? "btn ghost small" : "btn danger small";
+    renderActs();
+    $("subsCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    await loadSubs();
+  }
+
+  async function loadSubs() {
+    const m = $("sMsg");
+    say(m, "Loading submissions…");
+    $("subs").textContent = "";
+    try {
+      const j = await (await svc("GET", `/admin/list?a=${act.id}`)).json();
+      const drafts = new Map(j.drafts.map((d) => [d.r, d]));
+      const out = [];
+      for (const s of j.subs) {
+        let info;
+        try { info = MS.toJSON(await MS.openWith(vault.priv, MS.b64d(s.m))); }
+        catch { info = { name: "(couldn't decrypt)", sid: "", t: new Date(s.t).toISOString() }; }
+        out.push({ r: s.r, late: !!s.late, n: s.n, info, draft: drafts.get(s.r) || null });
+      }
+      // newest attempt per student is current; older ones are marked as earlier attempts
+      const latest = new Map();
+      for (const s of out) {
+        const k = (s.info.sid || s.info.name || "").toLowerCase().replace(/\s+/g, "");
+        s.key = k;
+        if (!latest.has(k) || latest.get(k).info.t < s.info.t) latest.set(k, s);
+      }
+      for (const s of out) s.earlier = latest.get(s.key) !== s;
+      out.sort((x, y) => x.info.name.localeCompare(y.info.name) || y.info.t.localeCompare(x.info.t));
+      subs = out;
+      say(m, "");
+      renderSubs();
+    } catch (e) {
+      say(m, e.message, "err");
+    }
+  }
+
+  function statusChip(s) {
+    const c = document.createElement("span");
+    if (!s.draft) { c.className = "chip new"; c.textContent = "New"; }
+    else if (s.draft.rel) { c.className = "chip met"; c.textContent = "Released"; }
+    else { c.className = "chip partly"; c.textContent = "Draft"; }
+    return c;
+  }
+
+  function renderSubs() {
+    const released = subs.filter((s) => s.draft && s.draft.rel).length;
+    const st = MS.activityState(act);
+    $("sInfo").textContent = `${subs.length} submission${subs.length === 1 ? "" : "s"} · ${released} released · ` +
+      (act.deadline ? "due " + MS.fmtDate(act.deadline) + " · " : "") + ({ open: "open", late: "open for late work", closed: "closed" })[st];
+    const box = $("subs");
+    box.textContent = "";
+    if (!subs.length) {
+      box.innerHTML = `<p class="muted">No submissions yet. Students enter <b class="mono">${MS.pretty(act.code)}</b> on the student page to hand in.</p>`;
+      return;
+    }
+    const t = document.createElement("table");
+    t.innerHTML = "<tr><th>Student</th><th>Student no.</th><th>Submitted</th><th>Files</th><th>Status</th></tr>";
+    subs.forEach((s, i) => {
+      const tr = document.createElement("tr");
+      tr.className = "click" + (i === pos ? " sel" : "");
+      const name = document.createElement("td");
+      name.textContent = s.info.name;
+      if (s.earlier) { const e = document.createElement("span"); e.className = "chip"; e.textContent = "earlier attempt"; name.append(" ", e); }
+      const sid = document.createElement("td");
+      sid.textContent = s.info.sid;
+      const when = document.createElement("td");
+      when.textContent = MS.fmtDate(s.info.t);
+      if (s.late) { const l = document.createElement("span"); l.className = "chip not"; l.textContent = "late"; when.append(" ", l); }
+      const files = document.createElement("td");
+      files.textContent = `${s.info.n || "?"} · ${MS.sizeText(s.info.size || s.n || 0)}`;
+      const status = document.createElement("td");
+      status.append(statusChip(s));
+      tr.append(name, sid, when, files, status);
+      tr.onclick = () => openSub(i);
+      t.append(tr);
+    });
+    box.append(t);
+  }
+
+  $("refresh").onclick = () => busy($("refresh"), "Refreshing…", loadSubs);
+
+  $("toggleClose").onclick = () => busy($("toggleClose"), "Saving…", async () => {
+    try {
+      index = await loadIndex();
+      const a = index.activities.find((x) => x.id === act.id);
+      a.closed = !a.closed;
+      await gh.commit([{ path: `a/${a.id}/meta.json`, bytes: MS.fromJSON(publicMeta(a)) }, await indexEntry()],
+        a.closed ? "Close activity" : "Reopen activity");
+      act = a;
+      say($("sMsg"), a.closed ? "Closed. New submissions are refused within about a minute." : "Reopened.", "muted");
+      renderActs();
+      renderSubs();
+    } catch (e) {
+      say($("sMsg"), e.message, "err");
+    }
+  }).then(() => {
+    $("toggleClose").textContent = act.closed ? "Reopen submissions" : "Close submissions";
+    $("toggleClose").className = act.closed ? "btn ghost small" : "btn danger small";
+  });
+
+  // ---------- review one submission
+  async function openSub(i) {
+    const seq = ++openSeq;
+    pos = i;
+    const s = subs[i];
+    renderSubs();
+    $("review").hidden = false;
+    $("rName").textContent = s.info.name;
+    $("rInfo").textContent = [s.info.sid, "submitted " + MS.fmtDate(s.info.t), s.late ? "late" : "", s.earlier ? "earlier attempt" : ""].filter(Boolean).join(" · ");
+    $("rTabs").textContent = "";
+    $("rNote").hidden = true;
+    setPreviewNote("Decrypting…");
+    $("prev").disabled = i === 0;
+    $("next").disabled = i === subs.length - 1;
+    fillForm(null, true);
+    $("review").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const blob = await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer();
+      const pkg = MS.unpack(await MS.openWith(vault.priv, blob));
+      let draft = null;
+      if (s.draft) draft = MS.toJSON(await MS.unseal(vault.vk, await (await svc("GET", `/admin/draft?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+      if (seq !== openSeq) return;
+      cur = { s, pkg, draft, file: 0 };
+      if (pkg.header.note) { $("rNote").hidden = false; $("rNote").textContent = "Student's note: " + pkg.header.note; }
+      renderTabs();
+      showFile(0);
+      fillForm(draft);
+    } catch (e) {
+      if (seq === openSeq) setPreviewNote("Couldn't open this submission: " + e.message);
+    }
+  }
+
+  $("prev").onclick = () => pos > 0 && openSub(pos - 1);
+  $("next").onclick = () => pos < subs.length - 1 && openSub(pos + 1);
+
+  function renderTabs() {
+    const box = $("rTabs");
+    box.textContent = "";
+    cur.pkg.files.forEach((f, k) => {
+      const b = document.createElement("button");
+      b.className = "btn ghost small" + (k === cur.file ? " on" : "");
+      b.textContent = `${f.name} (${MS.sizeText(f.size)})`;
+      b.onclick = () => showFile(k);
+      box.append(b);
+    });
+  }
+
+  function setPreviewNote(msg) {
+    const box = $("rPreview");
+    box.textContent = "";
+    const p = document.createElement("p");
+    p.className = "note muted";
+    p.textContent = msg;
+    box.append(p);
+  }
+
+  function blobUrl(data, type) {
+    const u = URL.createObjectURL(new Blob([data], { type }));
+    urls.push(u);
+    return u;
+  }
+
+  const scripts = {};
+  function loadScript(src) {
+    return scripts[src] || (scripts[src] = new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = ok;
+      s.onerror = () => { delete scripts[src]; fail(new Error("couldn't load the previewer")); };
+      document.head.append(s);
+    }));
+  }
+
+  const looksText = (d) => { const n = Math.min(d.length, 4000); for (let i = 0; i < n; i++) if (d[i] === 0) return false; return true; };
+
+  // Student files are untrusted: nothing they contain is ever run on this page.
+  // HTML/SVG-as-document is shown as source text; Word documents render in a sandboxed frame with scripts disabled.
+  async function showFile(k) {
+    cur.file = k;
+    renderTabs();
+    urls.forEach(URL.revokeObjectURL);
+    urls = [];
+    const f = cur.pkg.files[k];
+    const name = f.name.toLowerCase();
+    const box = $("rPreview");
+    box.textContent = "";
+    try {
+      if (name.endsWith(".pdf")) {
+        const fr = document.createElement("iframe");
+        fr.title = f.name;
+        fr.src = blobUrl(f.data, "application/pdf");
+        box.append(fr);
+      } else if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) {
+        const img = document.createElement("img");
+        img.alt = f.name;
+        img.src = blobUrl(f.data, name.endsWith(".svg") ? "image/svg+xml" : f.type || "image/png");
+        box.append(img);
+      } else if (name.endsWith(".docx")) {
+        setPreviewNote("Rendering Word document…");
+        await loadScript(MAMMOTH);
+        const res = await mammoth.convertToHtml({ arrayBuffer: f.data.slice().buffer });
+        if (cur.pkg.files[cur.file] !== f) return;
+        box.textContent = "";
+        const fr = document.createElement("iframe");
+        fr.title = f.name;
+        fr.setAttribute("sandbox", "");
+        fr.srcdoc = '<!doctype html><meta charset="utf-8"><style>body{font:15px/1.55 system-ui,sans-serif;color:#1c2230;background:#fff;padding:16px 22px;margin:0}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;vertical-align:top}</style>' + res.value;
+        box.append(fr);
+      } else if (name.endsWith(".ipynb")) {
+        renderNotebook(box, MS.toJSON(f.data));
+      } else if (name.endsWith(".zip")) {
+        await loadScript(JSZIP);
+        const zip = await JSZip.loadAsync(f.data);
+        const pre = document.createElement("pre");
+        const list = [];
+        zip.forEach((p, e) => { if (!e.dir) list.push(p); });
+        pre.textContent = "Zip contents (" + list.length + " files) — download to open:\n\n" + list.join("\n");
+        box.append(pre);
+      } else if (TEXT.test(name) || looksText(f.data)) {
+        const pre = document.createElement("pre");
+        pre.textContent = MS.text(f.data);
+        box.append(pre);
+      } else {
+        setPreviewNote("No preview for this file type — download it to open.");
+      }
+    } catch (e) {
+      setPreviewNote("Couldn't preview this file (" + e.message + "). Download it to open.");
+    }
+  }
+
+  function renderNotebook(box, nb) {
+    const src = (v) => (Array.isArray(v) ? v.join("") : v || "");
+    for (const c of nb.cells || []) {
+      const d = document.createElement("div");
+      d.className = "cell";
+      const tag = document.createElement("div");
+      tag.className = "tag";
+      tag.textContent = c.cell_type === "code" ? `In [${c.execution_count ?? " "}]` : c.cell_type;
+      const body = document.createElement(c.cell_type === "code" ? "pre" : "div");
+      if (c.cell_type !== "code") body.style.whiteSpace = "pre-wrap";
+      else body.style.padding = "6px 0";
+      body.textContent = src(c.source);
+      d.append(tag, body);
+      for (const o of c.outputs || []) {
+        const data = o.data || {};
+        if (data["image/png"]) {
+          const img = document.createElement("img");
+          img.src = "data:image/png;base64," + src(data["image/png"]).replace(/\s/g, "");
+          d.append(img);
+        } else {
+          const t = o.text || data["text/plain"] || (o.ename ? `${o.ename}: ${o.evalue}` : "");
+          if (!t) continue;
+          const pre = document.createElement("pre");
+          pre.className = "out";
+          pre.style.padding = "4px 0";
+          pre.textContent = src(t);
+          d.append(pre);
+        }
+      }
+      box.append(d);
+    }
+  }
+
+  function download(blob, name) {
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 60000);
+  }
+  const safeName = (s) => s.replace(/[^\w\-. ]+/g, "").trim() || "submission";
+
+  $("dlOne").onclick = () => {
+    if (!cur) return;
+    const f = cur.pkg.files[cur.file];
+    download(new Blob([f.data], { type: "application/octet-stream" }), f.name);
+  };
+  $("dlAll").onclick = () => cur && busy($("dlAll"), "Zipping…", async () => {
+    await loadScript(JSZIP);
+    const zip = new JSZip();
+    for (const f of cur.pkg.files) zip.file(f.name, f.data);
+    download(await zip.generateAsync({ type: "blob" }), safeName(`${cur.s.info.name} ${cur.s.info.sid}`) + ".zip");
+  });
+
+  // ---------- feedback form
+  function fillForm(d, loading) {
+    const box = $("fCrit");
+    box.textContent = "";
+    act.criteria.forEach((c, i) => {
+      const row = document.createElement("div");
+      row.className = "crit";
+      const t = document.createElement("span");
+      t.textContent = c;
+      const seg = document.createElement("div");
+      seg.className = "seg";
+      seg.setAttribute("role", "radiogroup");
+      seg.setAttribute("aria-label", c);
+      for (const v of ["met", "partly", "not"]) {
+        const l = document.createElement("label");
+        const inp = document.createElement("input");
+        inp.type = "radio";
+        inp.name = "c" + i;
+        inp.value = v;
+        inp.checked = !!(d && d.criteria && d.criteria[i] === v);
+        inp.onclick = () => { if (inp.dataset.was === "1") { inp.checked = false; inp.dataset.was = ""; } else { seg.querySelectorAll("input").forEach((x) => (x.dataset.was = "")); inp.dataset.was = "1"; } };
+        if (inp.checked) inp.dataset.was = "1";
+        l.append(inp, LABEL[v]);
+        seg.append(l);
+      }
+      row.append(t, seg);
+      box.append(row);
+    });
+    $("fMarkWrap").hidden = !act.outOf;
+    $("fOut").textContent = act.outOf ? "out of " + act.outOf : "";
+    $("fMark").value = d && d.mark !== null && d.mark !== undefined ? d.mark : "";
+    const qc = $("fQc");
+    qc.textContent = "";
+    for (const c of act.comments || []) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = c;
+      b.onclick = () => insertComment(c);
+      qc.append(b);
+    }
+    $("fText").value = (d && d.comment) || "";
+    $("withdraw").hidden = !(d && d.released);
+    $("release").textContent = d && d.released ? "Save & update" : "Save & release";
+    $("saveDraft").hidden = !!(d && d.released);
+    for (const id of ["saveDraft", "release", "withdraw"]) $(id).disabled = !!loading;
+    say($("fStatus"), loading ? "" : d ? (d.released ? "Released to the student " + MS.fmtDate(d.releasedAt) + "." : "Draft saved " + MS.fmtDate(d.t) + " — not visible to the student yet.") : "Not started.");
+  }
+
+  function insertComment(text) {
+    const ta = $("fText");
+    const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+    const before = ta.value.slice(0, s), after = ta.value.slice(e);
+    const sep = before && !/\s$/.test(before) ? (/[.!?]$/.test(before) ? " " : "\n") : "";
+    ta.value = before + sep + text + after;
+    const caret = (before + sep + text).length;
+    ta.focus();
+    ta.setSelectionRange(caret, caret);
+  }
+
+  function readForm() {
+    const criteria = act.criteria.map((_, i) => { const x = document.querySelector(`input[name="c${i}"]:checked`); return x ? x.value : null; });
+    const mv = $("fMark").value.trim();
+    return { criteria, mark: mv === "" ? null : Number(mv), comment: $("fText").value.trim() };
+  }
+
+  function feedbackFor(info, d) {
+    return {
+      v: 1, activity: act.title, module: act.module, name: info.name,
+      criteria: act.criteria.map((c, i) => ({ c, s: (d.criteria || [])[i] || null })),
+      mark: d.mark, outOf: act.outOf, comment: d.comment, released: d.releasedAt, submitted: info.t,
+    };
+  }
+
+  async function putFeedback(s, d) {
+    const key = await MS.importAes(MS.b64d(s.info.rk));
+    await svc("PUT", `/admin/feedback?r=${s.r}`, await MS.seal(key, MS.fromJSON(feedbackFor(s.info, d))));
+  }
+  async function putDraft(s, d) {
+    await svc("PUT", `/admin/draft?a=${act.id}&r=${s.r}&rel=${d.released ? 1 : 0}`, await MS.seal(vault.vk, MS.fromJSON(d)));
+    s.draft = { r: s.r, t: Date.now(), rel: !!d.released };
+  }
+
+  async function save(release) {
+    const f = readForm();
+    if (release && !f.comment && f.criteria.every((x) => !x) && f.mark === null) {
+      say($("fStatus"), "Add a comment, a criterion or a mark before releasing.", "err");
+      return;
+    }
+    if (f.mark !== null && (isNaN(f.mark) || f.mark < 0 || (act.outOf && f.mark > act.outOf))) {
+      say($("fStatus"), "Check the mark" + (act.outOf ? ` (0–${act.outOf}).` : "."), "err");
+      return;
+    }
+    const now = new Date().toISOString();
+    const wasReleased = cur.draft && cur.draft.released;
+    const keep = release || wasReleased;
+    const d = { ...f, t: now, released: !!keep, releasedAt: keep ? (release ? now : cur.draft.releasedAt) : null };
+    try {
+      if (keep) await putFeedback(cur.s, d);
+      await putDraft(cur.s, d);
+      cur.draft = d;
+      fillForm(d);
+      renderSubs();
+    } catch (e) {
+      say($("fStatus"), e.message, "err");
+    }
+  }
+
+  $("saveDraft").onclick = () => cur && busy($("saveDraft"), "Saving…", () => save(false));
+  $("release").onclick = () => cur && busy($("release"), "Releasing…", () => save(true));
+  $("withdraw").onclick = () => cur && busy($("withdraw"), "Withdrawing…", async () => {
+    if (!confirm("Withdraw this feedback? The student won't be able to see it until you release it again.")) return;
+    try {
+      await svc("DELETE", `/admin/feedback?r=${cur.s.r}`);
+      const d = { ...readForm(), t: new Date().toISOString(), released: false, releasedAt: null };
+      await putDraft(cur.s, d);
+      cur.draft = d;
+      fillForm(d);
+      renderSubs();
+    } catch (e) {
+      say($("fStatus"), e.message, "err");
+    }
+  });
+
+  async function getDraft(s) {
+    return MS.toJSON(await MS.unseal(vault.vk, await (await svc("GET", `/admin/draft?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+  }
+
+  $("releaseAll").onclick = () => busy($("releaseAll"), "Releasing…", async () => {
+    const todo = subs.filter((s) => s.draft && !s.draft.rel);
+    const m = $("sMsg");
+    if (!todo.length) return say(m, "No unreleased drafts.");
+    if (!confirm(`Release feedback to ${todo.length} student${todo.length === 1 ? "" : "s"}?`)) return;
+    let done = 0;
+    try {
+      for (const s of todo) {
+        say(m, `Releasing ${++done} of ${todo.length}…`);
+        const d = await getDraft(s);
+        d.released = true;
+        d.releasedAt = new Date().toISOString();
+        await putFeedback(s, d);
+        await putDraft(s, d);
+        if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
+      }
+      say(m, `Released ${todo.length} ✓`, "ok");
+    } catch (e) {
+      say(m, e.message, "err");
+    }
+    renderSubs();
+  });
+
+  // ---------- CSV
+  const cell = (v) => {
+    let s = v === null || v === undefined ? "" : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheets treating student text as formulas
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  $("exportCsv").onclick = () => busy($("exportCsv"), "Exporting…", async () => {
+    try {
+      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
+      const rows = [head];
+      for (const s of subs) {
+        const d = s.draft ? await getDraft(s) : null;
+        rows.push([
+          s.info.name, s.info.sid, MS.fmtDate(s.info.t), s.late ? "yes" : "", s.earlier ? "yes" : "",
+          ...act.criteria.map((_, i) => (d && d.criteria && d.criteria[i] ? LABEL[d.criteria[i]] : "")),
+          d ? d.mark : "", act.outOf || "", !d ? "Not started" : d.released ? "Released" : "Draft",
+          d && d.releasedAt ? MS.fmtDate(d.releasedAt) : "", d ? d.comment : "",
+        ]);
+      }
+      const csv = "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
+      download(new Blob([csv], { type: "text/csv" }), safeName(`${act.module} ${act.title} feedback`) + ".csv");
+    } catch (e) {
+      say($("sMsg"), e.message, "err");
+    }
+  });
+
+  if (conn.repo && conn.token) afterConnect();
+})();
+</script>
+</body>
+</html>

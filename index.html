@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Class Materials</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header><span id="site">Class Materials</span></header>
+
+  <!-- code entry -->
+  <div id="home">
+    <div class="card narrow">
+      <h1 class="center">Enter your code</h1>
+      <p class="muted center">Materials, activity or receipt code from your lecturer.</p>
+      <form id="form">
+        <input class="code-input" id="code" maxlength="12" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" placeholder="ABCD-2345" aria-label="Code" required>
+        <p class="err center" id="err" hidden></p>
+        <button class="btn full" id="go">Open</button>
+      </form>
+    </div>
+    <div class="card narrow" id="mine" hidden>
+      <h2>Your submissions on this device</h2>
+      <div id="mineList"></div>
+    </div>
+  </div>
+
+  <!-- materials -->
+  <div class="card" id="share" hidden>
+    <p class="muted" id="mod"></p>
+    <h1 id="title"></h1>
+    <p class="muted" id="info"></p>
+    <div class="files" id="files"></div>
+    <button class="btn" id="all" hidden>Download all (.zip)</button>
+    <p class="muted" style="margin-top:20px"><a href="./">Enter another code</a></p>
+  </div>
+
+  <!-- activity: brief + submit -->
+  <div id="activity" hidden>
+    <div class="card">
+      <p class="muted" id="aMod"></p>
+      <h1 id="aTitle"></h1>
+      <p class="muted" id="aDue"></p>
+      <div class="brief" id="aBrief"></div>
+      <div id="aCrit" hidden>
+        <h2 style="margin-top:16px">What your lecturer is looking for</h2>
+        <ul class="list-plain" id="aCritList"></ul>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Submit your work</h2>
+      <p class="err" id="aClosed" hidden></p>
+      <form id="subForm">
+        <div class="grid">
+          <div><label for="sName">Full name</label><input id="sName" maxlength="60" autocomplete="name" required></div>
+          <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" required></div>
+        </div>
+        <label for="sFiles">Files</label>
+        <input id="sFiles" type="file" multiple required>
+        <p class="muted" id="sFilesInfo">Up to 20 MB in total.</p>
+        <label for="sNote">Note to your lecturer (optional)</label>
+        <textarea id="sNote" maxlength="1000" style="min-height:70px"></textarea>
+        <p class="muted">Your work is encrypted on this device before it's sent. Only your lecturer can open it.</p>
+        <button class="btn" id="subBtn">Submit</button>
+        <div class="bar" id="bar" hidden><span id="barFill"></span></div>
+        <p id="subMsg" class="muted"></p>
+      </form>
+    </div>
+    <p class="muted"><a href="./">Enter another code</a></p>
+  </div>
+
+  <!-- receipt -->
+  <div class="card narrow" id="receipt" hidden>
+    <h1 class="center ok">Submitted ✓</h1>
+    <p class="center muted" id="rWhat"></p>
+    <p class="center" style="margin-top:20px">Your receipt code</p>
+    <div class="big center" style="font-size:clamp(2.2rem,10vw,3.2rem)" id="rCode"></div>
+    <p class="center muted">Enter this code here later to read your feedback. Keep it private: anyone with it can read your feedback.</p>
+    <p class="center actions" style="justify-content:center">
+      <button class="btn ghost" id="rCopy">Copy code</button>
+      <button class="btn ghost" id="rSave">Save receipt</button>
+    </p>
+    <p class="center muted" style="margin-top:16px"><a href="./">Done</a></p>
+  </div>
+
+  <!-- feedback -->
+  <div id="feedback" hidden>
+    <div class="card">
+      <p class="muted" id="fMod"></p>
+      <h1 id="fTitle"></h1>
+      <p class="muted" id="fInfo"></p>
+      <div id="fMarkWrap" hidden style="margin-top:12px"><span class="mark" id="fMark"></span></div>
+      <div id="fCrit" style="margin-top:12px"></div>
+      <div id="fCommentWrap" hidden>
+        <h2 style="margin-top:20px">Comments</h2>
+        <div class="brief" id="fComment"></div>
+      </div>
+    </div>
+    <p class="muted"><a href="./">Enter another code</a></p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const base = new URL("./", location.href).href;
+  const SVC = (SITE.submitUrl || "").replace(/\/+$/, "");
+  const MAX_TOTAL = 20 * 1024 * 1024;
+  const STATUS = { met: ["Met", "met"], partly: ["Partly met", "partly"], not: ["Not yet", "not"] };
+  let current = null;
+
+  document.title = SITE.name;
+  $("site").textContent = SITE.name;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  function show(id) {
+    for (const v of ["home", "share", "activity", "receipt", "feedback"]) $(v).hidden = v !== id;
+    window.scrollTo(0, 0);
+  }
+
+  function showErr(msg) { $("err").textContent = msg; $("err").hidden = false; }
+
+  // ---------- receipts kept on this device
+  function renderMine() {
+    const list = store.get("ms-receipts") || [];
+    $("mine").hidden = !list.length;
+    const box = $("mineList");
+    box.textContent = "";
+    for (const r of list.slice(0, 10)) {
+      const row = document.createElement("div");
+      row.className = "mine";
+      const left = document.createElement("div");
+      const t = document.createElement("div");
+      t.textContent = r.title;
+      const m = document.createElement("div");
+      m.className = "muted";
+      m.textContent = MS.fmtDate(r.t) + " · " + MS.pretty(r.code);
+      left.append(t, m);
+      const b = document.createElement("button");
+      b.className = "btn ghost small";
+      b.textContent = "Feedback";
+      b.onclick = () => { $("code").value = MS.pretty(r.code); load(r.code); };
+      row.append(left, b);
+      box.append(row);
+    }
+  }
+
+  // ---------- open any code
+  async function load(raw) {
+    const code = MS.normalise(raw);
+    $("err").hidden = true;
+    if (!MS.valid(code)) return showErr("Codes are 8 letters and numbers, like ABCD-2345.");
+    $("go").disabled = true;
+    $("go").textContent = "Unlocking…";
+    try {
+      const r = await MS.openAny(code, SITE.salt, base, SVC);
+      if (r.kind === "none") {
+        return showErr("That code wasn't recognised. A brand-new code can take a couple of minutes to go live. If it's a receipt code, your feedback hasn't been released yet.");
+      }
+      if (r.kind === "share" && r.status === "expired") return showErr("These materials have expired. Ask your lecturer for a new code.");
+      history.replaceState(null, "", "#" + code);
+      current = r;
+      if (r.kind === "share") renderShare();
+      else if (r.kind === "activity") renderActivity();
+      else renderFeedback(r.feedback);
+    } catch (e) {
+      showErr(e.name === "OperationError" ? "That code couldn't unlock anything." : "Couldn't reach the site. Check your connection and try again.");
+    } finally {
+      $("go").disabled = false;
+      $("go").textContent = "Open";
+    }
+  }
+
+  // ---------- materials
+  function renderShare() {
+    const m = current.manifest;
+    show("share");
+    $("mod").textContent = m.module || "";
+    $("title").textContent = m.title;
+    document.title = m.title;
+    const n = m.files.length;
+    let info = n + " file" + (n === 1 ? "" : "s");
+    if (current.meta.expires) info += " · available until " + MS.fmtDate(current.meta.expires);
+    $("info").textContent = info;
+    const box = $("files");
+    box.textContent = "";
+    for (const f of m.files) {
+      const b = document.createElement("button");
+      const name = document.createElement("span");
+      const sz = document.createElement("span");
+      name.textContent = f.name;
+      sz.className = "sz";
+      sz.textContent = MS.sizeText(f.size) + " ↓";
+      b.append(name, sz);
+      b.onclick = () => saveOne(f, sz);
+      box.append(b);
+    }
+    $("all").hidden = n < 2;
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function saveOne(f, label) {
+    const before = MS.sizeText(f.size);
+    label.textContent = "Downloading…";
+    try {
+      download(new Blob([await current.file(f)], { type: f.type }), f.name);
+      label.textContent = before + " ✓";
+    } catch (e) {
+      label.textContent = "Failed — tap to retry";
+    }
+  }
+
+  function loadZipLib() {
+    if (window.JSZip) return Promise.resolve();
+    return new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.onload = ok;
+      s.onerror = fail;
+      document.head.append(s);
+    });
+  }
+
+  $("all").onclick = async () => {
+    const btn = $("all");
+    btn.disabled = true;
+    try {
+      await loadZipLib();
+      const zip = new JSZip();
+      const files = current.manifest.files;
+      for (let i = 0; i < files.length; i++) {
+        btn.textContent = `Downloading ${i + 1} of ${files.length}…`;
+        zip.file(files[i].name, await current.file(files[i]));
+      }
+      btn.textContent = "Zipping…";
+      const blob = await zip.generateAsync({ type: "blob" });
+      download(blob, (current.manifest.title.replace(/[^\w\- ]+/g, "").trim() || "materials") + ".zip");
+      btn.textContent = "Download all (.zip) ✓";
+    } catch (e) {
+      btn.textContent = "Couldn't build the zip — download files one by one";
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // ---------- activity
+  function renderActivity() {
+    const b = current.brief;
+    show("activity");
+    document.title = b.title;
+    $("aMod").textContent = b.module || "";
+    $("aTitle").textContent = b.title;
+    $("aBrief").textContent = b.brief || "";
+    $("aCrit").hidden = !(b.criteria && b.criteria.length);
+    const ul = $("aCritList");
+    ul.textContent = "";
+    for (const c of b.criteria || []) {
+      const li = document.createElement("li");
+      li.textContent = c;
+      ul.append(li);
+    }
+    const state = MS.activityState(current.meta);
+    const due = current.meta.deadline ? "Due " + MS.fmtDate(current.meta.deadline) : "No deadline";
+    $("aDue").textContent = state === "late" ? due + " · late submissions are accepted but marked late" : due;
+    let closed = "";
+    if (!SVC) closed = "Online submission isn't set up for this site yet. Ask your lecturer how to hand in.";
+    else if (state === "closed") closed = "Submissions for this activity are closed.";
+    $("aClosed").textContent = closed;
+    $("aClosed").hidden = !closed;
+    $("subForm").hidden = !!closed;
+    $("subMsg").textContent = "";
+    $("bar").hidden = true;
+  }
+
+  $("sFiles").onchange = () => {
+    const files = [...$("sFiles").files];
+    const total = files.reduce((a, f) => a + f.size, 0);
+    $("sFilesInfo").textContent = files.length
+      ? `${files.length} file${files.length === 1 ? "" : "s"} · ${MS.sizeText(total)}${total > MAX_TOTAL ? " — too large, max 20 MB in total" : ""}`
+      : "Up to 20 MB in total.";
+    $("sFilesInfo").className = total > MAX_TOTAL ? "err" : "muted";
+  };
+
+  function upload(url, body, meta, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", url);
+      x.setRequestHeader("X-Meta", meta);
+      x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+      x.onload = () => {
+        let j = {};
+        try { j = JSON.parse(x.responseText); } catch {}
+        x.status === 201 ? resolve(j) : reject(new Error(j.error || "Upload failed (" + x.status + ")"));
+      };
+      x.onerror = () => reject(new Error("Couldn't reach the submission service. Check your connection and try again."));
+      x.send(new Blob([body]));
+    });
+  }
+
+  $("subForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const msg = $("subMsg");
+    msg.className = "muted";
+    const name = $("sName").value.trim();
+    const sid = $("sId").value.trim();
+    const note = $("sNote").value.trim();
+    const picked = [...$("sFiles").files];
+    const total = picked.reduce((a, f) => a + f.size, 0);
+    if (!name || !sid || !picked.length) return;
+    if (total > MAX_TOTAL) { msg.className = "err"; msg.textContent = "Your files add up to more than 20 MB. Remove some or compress them into a smaller zip."; return; }
+
+    const btn = $("subBtn");
+    btn.disabled = true;
+    $("bar").hidden = false;
+    $("barFill").style.width = "0";
+    try {
+      msg.textContent = "Encrypting…";
+      const kr = await fetch(base + "keys/lecturer.json", { cache: "no-store" });
+      if (!kr.ok) throw new Error("Your lecturer hasn't finished setting up submissions yet.");
+      const pub = await MS.importPub((await kr.json()).pub);
+
+      const receipt = MS.newCode();
+      const rd = await MS.derive(receipt, SITE.salt);
+      const t = new Date().toISOString();
+      const rk = MS.b64e(rd.raw);
+      const files = [];
+      for (const f of picked) files.push({ name: f.name, type: f.type, data: new Uint8Array(await f.arrayBuffer()) });
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note, t, rk }, files));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, n: files.length, size: total })));
+
+      msg.textContent = "Uploading…";
+      await upload(`${SVC}/submit?a=${current.id}&r=${rd.id}`, body, meta, (p) => {
+        $("barFill").style.width = Math.round(p * 100) + "%";
+        msg.textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : "Finishing…";
+      });
+
+      const list = store.get("ms-receipts") || [];
+      list.unshift({ code: receipt, title: current.brief.title, t });
+      store.set("ms-receipts", list.slice(0, 30));
+      showReceipt(receipt, name, files, t);
+      $("subForm").reset();
+      $("sFiles").onchange();
+    } catch (e) {
+      msg.className = "err";
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  function showReceipt(code, name, files, t) {
+    show("receipt");
+    $("rCode").textContent = MS.pretty(code);
+    $("rWhat").textContent = `${current.brief.title} · ${files.length} file${files.length === 1 ? "" : "s"} · ${MS.fmtDate(t)}`;
+    $("rCopy").textContent = "Copy code";
+    $("rCopy").onclick = async () => {
+      try { await navigator.clipboard.writeText(MS.pretty(code)); $("rCopy").textContent = "Copied ✓"; } catch { $("rCopy").textContent = MS.pretty(code); }
+    };
+    $("rSave").onclick = () => {
+      const lines = [
+        `${SITE.name} — submission receipt`, "",
+        `Activity: ${[current.brief.module, current.brief.title].filter(Boolean).join(" · ")}`,
+        `Name: ${name}`, `Submitted: ${MS.fmtDate(t)}`,
+        `Files: ${files.map((f) => f.name).join(", ")}`, "",
+        `Receipt code: ${MS.pretty(code)}`,
+        `Feedback: ${base}#${code}`, "",
+        "Keep this code private: anyone with it can read your feedback.",
+      ];
+      download(new Blob([lines.join("\n")], { type: "text/plain" }), "receipt-" + code + ".txt");
+    };
+  }
+
+  // ---------- feedback
+  function renderFeedback(fb) {
+    show("feedback");
+    document.title = "Feedback · " + fb.activity;
+    $("fMod").textContent = fb.module || "";
+    $("fTitle").textContent = fb.activity;
+    $("fInfo").textContent = `Feedback for ${fb.name} · released ${MS.fmtDate(fb.released)}`;
+    const hasMark = fb.mark !== null && fb.mark !== undefined && fb.mark !== "";
+    $("fMarkWrap").hidden = !hasMark;
+    $("fMark").textContent = hasMark ? (fb.outOf ? `${fb.mark} / ${fb.outOf}` : String(fb.mark)) : "";
+    const box = $("fCrit");
+    box.textContent = "";
+    for (const c of fb.criteria || []) {
+      if (!c.s) continue;
+      const row = document.createElement("div");
+      row.className = "fbcrit";
+      const t = document.createElement("span");
+      t.textContent = c.c;
+      const chip = document.createElement("span");
+      const [label, cls] = STATUS[c.s] || ["—", ""];
+      chip.className = "chip " + cls;
+      chip.textContent = label;
+      row.append(t, chip);
+      box.append(row);
+    }
+    $("fCommentWrap").hidden = !fb.comment;
+    $("fComment").textContent = fb.comment || "";
+  }
+
+  $("form").onsubmit = (e) => { e.preventDefault(); load($("code").value); };
+
+  renderMine();
+  if (location.hash.length > 1) {
+    $("code").value = MS.pretty(MS.normalise(location.hash.slice(1)));
+    load(location.hash.slice(1));
+  }
+})();
+</script>
+</body>
+</html>
