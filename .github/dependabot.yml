@@ -4,7 +4,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: pip
     directory: /tests
     schedule:
       interval: monthly
+    groups:
+      test-tools:
+        patterns: ["*"]
