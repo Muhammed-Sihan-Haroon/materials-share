@@ -114,6 +114,11 @@
           <button class="btn danger" id="withdraw" hidden>Withdraw</button>
         </p>
         <p class="muted" id="fStatus"></p>
+        <div class="receipt-box" id="rcBox" hidden>
+          <div><span class="muted">Student's receipt code</span><br><b class="mono" id="rcCode"></b></div>
+          <p class="actions"><button class="btn ghost small" id="rcCopy">Copy</button><button class="btn ghost small" id="rcNew">Issue new code</button></p>
+          <p class="muted" id="rcMsg" style="margin:0;font-size:.85rem"></p>
+        </div>
       </div>
     </div>
     </div>
@@ -445,14 +450,17 @@
     $("prev").disabled = i === 0;
     $("next").disabled = i === subs.length - 1;
     fillForm(null, true);
+    $("rcBox").hidden = true;
     $("review").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const blob = await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer();
       const pkg = MS.unpack(await MS.openWith(vault.priv, blob));
       let draft = null;
-      if (s.draft) draft = MS.toJSON(await MS.unseal(vault.vk, await (await svc("GET", `/admin/draft?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+      if (s.draft) draft = await getDraft(s);
       if (seq !== openSeq) return;
+      if (pkg.header.rc && !s.info.rc) s.info.rc = pkg.header.rc;
       cur = { s, pkg, draft, file: 0 };
+      showReceiptBox();
       if (pkg.header.note) { $("rNote").hidden = false; $("rNote").textContent = "Student's note: " + pkg.header.note; }
       renderTabs();
       showFile(0);
@@ -700,11 +708,19 @@
     };
   }
 
+  async function target(s, d) {
+    const code = (d && d.receipt) || s.receipt;
+    if (!code) return { id: s.r, key: await MS.importAes(MS.b64d(s.info.rk)) };
+    const k = await MS.derive(code, SITE.salt);
+    return { id: k.id, key: await MS.importAes(k.raw) };
+  }
   async function putFeedback(s, d) {
-    const key = await MS.importAes(MS.b64d(s.info.rk));
-    await svc("PUT", `/admin/feedback?r=${s.r}`, await MS.seal(key, MS.fromJSON(feedbackFor(s.info, d))));
+    const t = await target(s, d);
+    await svc("PUT", `/admin/feedback?r=${t.id}`, await MS.seal(t.key, MS.fromJSON(feedbackFor(s.info, d))));
   }
   async function putDraft(s, d) {
+    if (!d.receipt && s.receipt) d.receipt = s.receipt;   // a replacement code stays with the submission
+    if (d.receipt) s.receipt = d.receipt;
     await svc("PUT", `/admin/draft?a=${act.id}&r=${s.r}&rel=${d.released ? 1 : 0}&ai=${d.ai ? 1 : 0}`, await MS.seal(vault.vk, MS.fromJSON(d)));
     s.draft = { r: s.r, t: Date.now(), rel: !!d.released, ai: !!d.ai };
   }
@@ -740,7 +756,8 @@
   $("withdraw").onclick = () => cur && busy($("withdraw"), "Withdrawing…", async () => {
     if (!confirm("Withdraw this feedback? The student won't be able to see it until you release it again.")) return;
     try {
-      await svc("DELETE", `/admin/feedback?r=${cur.s.r}`);
+      const t = await target(cur.s, cur.draft);
+      await svc("DELETE", `/admin/feedback?r=${t.id}`);
       const d = { ...readForm(), t: new Date().toISOString(), released: false, releasedAt: null };
       await putDraft(cur.s, d);
       cur.draft = d;
@@ -751,8 +768,49 @@
     }
   });
 
+  // ---------- receipt codes (for students who lost theirs)
+  function showReceiptBox() {
+    const s = cur.s;
+    const code = s.receipt || s.info.rc;
+    $("rcBox").hidden = false;
+    $("rcCode").textContent = code ? MS.pretty(code) : "Not available";
+    $("rcCopy").hidden = !code;
+    $("rcCopy").textContent = "Copy";
+    $("rcNew").textContent = code ? "Issue new code" : "Issue a code";
+    say($("rcMsg"), s.receipt ? "This is a replacement code you issued. The student's original code no longer shows feedback."
+      : code ? "Give this to the student if they lost their receipt. It only opens their own feedback."
+      : "This was handed in before receipt codes were kept. Issue a code to give the student.");
+  }
+  $("rcCopy").onclick = async () => {
+    const code = cur && (cur.s.receipt || cur.s.info.rc);
+    if (!code) return;
+    try { await navigator.clipboard.writeText(MS.pretty(code)); $("rcCopy").textContent = "Copied ✓"; } catch { $("rcCopy").textContent = MS.pretty(code); }
+  };
+  $("rcNew").onclick = () => cur && busy($("rcNew"), "Issuing…", async () => {
+    const s = cur.s;
+    if ((s.receipt || s.info.rc) && !confirm("Issue a new receipt code? The student's current code will stop showing feedback. Use this if a code may have been shared.")) return;
+    try {
+      const old = await target(s, cur.draft);
+      const code = MS.newCode();
+      const d = cur.draft ? { ...cur.draft } : { criteria: [], mark: null, comment: "", t: new Date().toISOString(), released: false, releasedAt: null, ai: false };
+      d.receipt = code;
+      s.receipt = code;
+      if (d.released) await putFeedback(s, d);
+      await putDraft(s, d);
+      if (old.id !== (await target(s, d)).id) await svc("DELETE", `/admin/feedback?r=${old.id}`).catch(() => null);
+      cur.draft = d;
+      fillForm(d);
+      renderSubs();
+      showReceiptBox();
+    } catch (e) {
+      say($("rcMsg"), e.message || e.name, "err");
+    }
+  });
+
   async function getDraft(s) {
-    return MS.toJSON(await MS.unseal(vault.vk, await (await svc("GET", `/admin/draft?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+    const d = MS.toJSON(await MS.unseal(vault.vk, await (await svc("GET", `/admin/draft?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+    if (d.receipt) s.receipt = d.receipt;
+    return d;
   }
 
   $("releaseAll").onclick = () => busy($("releaseAll"), "Releasing…", async () => {
@@ -762,19 +820,21 @@
     const unreviewed = todo.filter((s) => s.draft.ai).length;
     if (!confirm(`Release feedback to ${todo.length} student${todo.length === 1 ? "" : "s"}?` +
       (unreviewed ? `\n\n${unreviewed} of these ${unreviewed === 1 ? "is an AI draft" : "are AI drafts"} you haven't edited yet. Students will see ${unreviewed === 1 ? "it" : "them"} as written.` : ""))) return;
-    let done = 0;
+    let done = 0, sent = 0;
     try {
       for (const s of todo) {
         say(m, `Releasing ${++done} of ${todo.length}…`);
         const d = await getDraft(s);
+        if (!(d.comment || "").trim() && !(d.criteria || []).some(Boolean) && (d.mark === null || d.mark === undefined)) continue; // only a receipt code, no feedback yet
         d.released = true;
         d.releasedAt = new Date().toISOString();
         d.ai = false;
         await putFeedback(s, d);
         await putDraft(s, d);
+        sent++;
         if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
       }
-      say(m, `Released ${todo.length} ✓`, "ok");
+      say(m, `Released ${sent} ✓`, "ok");
     } catch (e) {
       say(m, e.message || e.name, "err");
     }
@@ -861,6 +921,7 @@
       submission: { note: pkg.header.note || "", files },
     });
     const r = await (await svc("POST", "/admin/ai", body)).json();
+    if (s.draft && !s.receipt) await getDraft(s).catch(() => null);
     const d = { criteria: r.criteria, mark: r.mark, comment: r.comment, reasons: r.reasons, aiModel: r.model, ai: true,
       t: new Date().toISOString(), released: false, releasedAt: null };
     await putDraft(s, d);
