@@ -231,3 +231,36 @@ fieldset.vis legend{font-weight:700;font-size:.88rem;padding:0 6px}
 .receipt-box{margin-top:16px;padding:12px 14px;border:1px dashed var(--line);border-radius:10px;background:var(--sunken)}
 .receipt-box .actions{margin:8px 0 6px}
 .receipt-box .mono{font-size:1.15rem;letter-spacing:.06em}
+
+/* quizzes */
+fieldset.type-pick{border:1px solid var(--line);border-radius:var(--r-sm);margin:16px 0 4px;padding:10px 14px 12px;display:grid;gap:8px}
+fieldset.type-pick legend{font-weight:700;font-size:.88rem;padding:0 6px}
+textarea.mono{font-weight:400;letter-spacing:0;font-size:.88rem;line-height:1.5}
+.qprev{margin:10px 0 6px;display:grid;gap:8px}
+.qprev>p{margin:0;font-weight:700}
+.qprev ul.err{margin:0;padding-left:20px}
+.qp{border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;background:var(--card)}
+.qp-top{display:flex;gap:10px;align-items:center;margin-bottom:4px}
+.qp-text,.qtext,.qcell{white-space:pre-wrap;overflow-wrap:anywhere}
+.qp-opts{margin:6px 0 0;padding-left:20px}
+.qp-opts li.right{color:var(--ok);font-weight:700}
+.qp-ans{margin:6px 0 0;color:var(--ok);font-weight:700}
+.qscore{font-size:1.4rem;font-weight:700;margin:4px 0 10px}
+.qtable{width:100%;border-collapse:collapse;font-size:.92rem}
+.qtable th,.qtable td{text-align:left;vertical-align:top;padding:8px 8px;border-bottom:1px solid var(--line)}
+label.check.small{font-size:.82rem;white-space:nowrap}
+.quiz{display:grid;gap:14px;margin:16px 0 4px}
+.quiz .qq{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px 14px;margin:0;min-width:0}
+.quiz legend{font-weight:700;font-size:.88rem;padding:0 6px;color:var(--muted)}
+.quiz .qtext{line-height:2.1;margin-bottom:6px}
+.quiz input.blank{display:inline-block;width:12ch;max-width:100%;padding:2px 8px;margin:0 4px;line-height:1.4}
+.quiz .opt{display:flex;gap:10px;align-items:flex-start;font-weight:400;padding:7px 8px;border-radius:var(--r-sm);cursor:pointer}
+.quiz .opt:hover{background:var(--sunken)}
+.quiz .opt input{width:18px;height:18px;margin-top:3px;flex:none;accent-color:var(--accent)}
+.qres{padding-left:22px;display:grid;gap:10px;margin:12px 0}
+.qres li{white-space:pre-wrap;overflow-wrap:anywhere}
+.qres li.right b{color:var(--ok)}
+.qres li.wrong b{color:var(--bad)}
+.qres li.part b{color:var(--warn)}
+.preview.quizview{height:auto;min-height:0;max-height:none;overflow:visible;overflow-x:auto;background:transparent;border:0;padding:0}
+.qtable td.qcell{min-width:220px}
