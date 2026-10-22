@@ -228,3 +228,6 @@ fieldset.vis legend{font-weight:700;font-size:.88rem;padding:0 6px}
 .mod-card h2{margin:0}
 .mod-card .nums{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0 14px;font-size:.92rem;color:var(--muted)}
 .mod-card .nums b{display:block;font-size:1.35rem;color:var(--ink)}
+.receipt-box{margin-top:16px;padding:12px 14px;border:1px dashed var(--line);border-radius:10px;background:var(--sunken)}
+.receipt-box .actions{margin:8px 0 6px}
+.receipt-box .mono{font-size:1.15rem;letter-spacing:.06em}
