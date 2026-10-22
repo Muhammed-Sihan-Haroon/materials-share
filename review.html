@@ -36,18 +36,36 @@
           <div><label for="aTitle">Title</label><input id="aTitle" maxlength="120" required placeholder="Week 3 seminar — SQL joins"></div>
           <div><label for="aModule">Module (optional)</label><input id="aModule" maxlength="40" placeholder="COM106"></div>
           <div><label for="aDeadline">Deadline (optional)</label><input id="aDeadline" type="datetime-local"></div>
-          <div><label for="aOut">Mark out of (optional)</label><input id="aOut" type="number" min="1" step="1" placeholder="No mark"></div>
+          <div id="outWrap"><label for="aOut">Mark out of (optional)</label><input id="aOut" type="number" min="1" step="1" placeholder="No mark"></div>
         </div>
         <div class="grid" id="aPlace">
           <div><label for="aMod">Add to module (optional)</label><select id="aMod"><option value="">Not in a module</option></select></div>
           <div><label for="aWeek">Week</label><select id="aWeek" disabled></select></div>
         </div>
+        <fieldset class="type-pick">
+          <legend>Type of activity</legend>
+          <label class="check"><input type="radio" name="aType" value="work" checked> Hand in work (files)</label>
+          <label class="check"><input type="radio" name="aType" value="quiz"> Quiz (multiple choice and fill in the blank, marked automatically)</label>
+        </fieldset>
         <label class="check"><input type="checkbox" id="aLate" checked> Accept late submissions (they're flagged as late)</label>
         <label for="aBrief">Instructions for students</label>
         <textarea id="aBrief" placeholder="What to do, what to upload, file format…"></textarea>
         <label for="aFiles">Worksheet or files for students (optional)</label>
         <input id="aFiles" type="file" multiple>
         <p class="muted">Students download these from the activity page. Up to 50 MB per file.</p>
+        <div id="quizBox" hidden>
+          <label for="qFile">Quiz file (Word, PDF or text)</label>
+          <input id="qFile" type="file" accept=".docx,.pdf,.txt,.md,.text">
+          <p class="muted">Write the questions in Word as you normally would: mark the right option with <b>*</b> at the end or make it <b>bold</b>, or add an <b>Answer:</b> line. For fill in the blank, put the answer in [[double brackets]]. <a href="templates/Quiz_Template.docx" download>Download a Word template</a></p>
+          <label for="qText">Questions (read from your file; you can edit them here)</label>
+          <textarea id="qText" class="mono" style="min-height:220px" placeholder="1. Which part converts mains AC into DC?&#10;a) CPU&#10;b) Power supply *&#10;&#10;2. RAM is [[volatile|temporary]] memory."></textarea>
+          <div id="qPreview" class="qprev"></div>
+          <div class="grid">
+            <div><label for="qShow">Students see their score</label><select id="qShow"><option value="now">Straight after they submit</option><option value="release">When I release it</option></select></div>
+            <div><label class="check" style="margin-top:34px"><input type="checkbox" id="qReveal" checked> Show the correct answers with the score</label></div>
+          </div>
+        </div>
+        <div id="workOnly">
         <label for="aCrit">Feedback criteria — one per line</label>
         <textarea id="aCrit" style="min-height:100px" placeholder="Correct use of INNER and LEFT JOIN&#10;Queries return the expected rows&#10;Clear, consistently formatted SQL"></textarea>
         <label class="check"><input type="checkbox" id="aShowCrit" checked> Show criteria to students</label>
@@ -57,6 +75,7 @@
         <input id="aNotesFile" type="file">
         <label for="aQc">Quick comments — one per line (only you see these)</label>
         <textarea id="aQc" style="min-height:100px" placeholder="Good use of aliases — it makes the joins easy to follow.&#10;Check which rows a LEFT JOIN keeps when there's no match."></textarea>
+        </div>
         <p class="actions" style="margin-top:14px">
           <button class="btn" id="createAct">Create activity &amp; code</button>
           <button class="btn ghost" type="button" id="cancelNew">Cancel</button>
@@ -74,12 +93,14 @@
           <button class="btn ghost small" id="refresh">Refresh</button>
           <button class="btn small" id="aiAll" hidden>AI draft all new</button>
           <button class="btn ghost small" id="releaseAll">Release all drafts</button>
+          <button class="btn ghost small" id="breakdown" hidden>Question breakdown</button>
           <button class="btn ghost small" id="exportCsv">Export CSV</button>
           <button class="btn danger small" id="toggleClose">Close submissions</button>
         </div>
       </div>
       <p id="sMsg" class="muted"></p>
       <div id="subs" style="overflow-x:auto"></div>
+      <div id="qStats" style="overflow-x:auto" hidden></div>
     </div>
 
     <!-- review -->
@@ -92,7 +113,7 @@
         <div class="brief muted" id="rNote" hidden></div>
         <div class="tabs" id="rTabs"></div>
         <div class="preview" id="rPreview"></div>
-        <p class="actions" style="margin-top:10px">
+        <p class="actions" style="margin-top:10px" id="dlRow">
           <button class="btn ghost small" id="dlOne">Download this file</button>
           <button class="btn ghost small" id="dlAll">Download all</button>
         </p>
@@ -127,6 +148,7 @@
 
 <script src="config.js"></script>
 <script src="shared.js"></script>
+<script src="quiz.js"></script>
 <script src="gh.js"></script>
 <script src="lecturer.js"></script>
 <script>
@@ -245,6 +267,75 @@
 
   const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
 
+  // ---------- quiz authoring
+  const isQuizForm = () => document.querySelector('input[name="aType"]:checked').value === "quiz";
+  function syncType() {
+    const quiz = isQuizForm();
+    $("quizBox").hidden = !quiz;
+    $("workOnly").hidden = quiz;
+    $("outWrap").hidden = quiz;
+    $("aBrief").placeholder = quiz ? "Anything students should know before they start (optional)" : "What to do, what to upload, file format…";
+  }
+  for (const r of document.querySelectorAll('input[name="aType"]')) r.onchange = syncType;
+
+  const quizLoaders = {
+    mammoth: () => loadScript(MAMMOTH),
+    pdf: async () => { await loadScript(PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; },
+  };
+  $("qFile").onchange = async () => {
+    const f = $("qFile").files[0];
+    if (!f) return;
+    const box = $("qPreview");
+    say(box, "Reading " + f.name + "…");
+    try {
+      $("qText").value = (await Quiz.readQuizFile(f, quizLoaders)).trim();
+      renderQuizPreview();
+    } catch (e) {
+      say(box, "Couldn't read that file: " + (e.message || e.name), "err");
+    }
+  };
+  let qTimer = 0;
+  $("qText").oninput = () => { clearTimeout(qTimer); qTimer = setTimeout(renderQuizPreview, 300); };
+
+  function renderQuizPreview() {
+    const box = $("qPreview");
+    box.textContent = "";
+    box.className = "qprev";
+    const { questions, problems, ignored } = Quiz.parseQuiz($("qText").value);
+    if (!questions.length && !problems.length) return;
+    const total = questions.reduce((a, q) => a + q.p, 0);
+    const head = Lecturer.el("p", { class: problems.length ? "err" : "ok",
+      text: `${questions.length} question${questions.length === 1 ? "" : "s"} ready, ${total} mark${total === 1 ? "" : "s"} in total` +
+        (problems.length ? `. ${problems.length} need${problems.length === 1 ? "s" : ""} fixing before you can publish:` : ". Check them below.") });
+    box.append(head);
+    if (problems.length) {
+      const ul = Lecturer.el("ul", { class: "err" });
+      for (const p of problems) ul.append(Lecturer.el("li", { text: `Question ${p.n}: ${p.msg}. (“${p.src.slice(0, 70)}”)` }));
+      box.append(ul);
+    }
+    const TYPE = { mcq: "One answer", multi: "Several answers", blank: "Fill in the blank" };
+    questions.forEach((q, i) => {
+      const card = Lecturer.el("div", { class: "qp" });
+      const top = Lecturer.el("div", { class: "qp-top" });
+      top.append(Lecturer.el("b", { text: `Q${i + 1}` }), Lecturer.el("span", { class: "chip", text: TYPE[q.t] }), Lecturer.el("span", { class: "muted", text: `${q.p} mark${q.p === 1 ? "" : "s"}` }));
+      card.append(top, Lecturer.el("div", { class: "qp-text", text: q.text }));
+      if (q.options) {
+        const ul = Lecturer.el("ul", { class: "qp-opts" });
+        q.options.forEach((o, k) => ul.append(Lecturer.el("li", { class: q.a.includes(k) ? "right" : "", text: (q.a.includes(k) ? "✓ " : "") + o })));
+        card.append(ul);
+      } else {
+        card.append(Lecturer.el("p", { class: "qp-ans", text: "Accepted: " + q.a.map((g, k) => (q.a.length > 1 ? `blank ${k + 1}: ` : "") + g.join(" / ")).join(";  ") }));
+      }
+      box.append(card);
+    });
+    if (ignored.length) {
+      const d = Lecturer.el("details", { class: "muted" });
+      d.append(Lecturer.el("summary", { text: `${ignored.length} line${ignored.length === 1 ? "" : "s"} not used (titles, instructions)` }));
+      for (const t of ignored.slice(0, 30)) d.append(Lecturer.el("div", { text: t }));
+      box.append(d);
+    }
+  }
+
   $("newForm").onsubmit = (ev) => {
     ev.preventDefault();
     busy($("createAct"), "Creating…", async () => {
@@ -271,6 +362,15 @@
           deadline, late: $("aLate").checked, showCriteria: $("aShowCrit").checked, criteria: lines("aCrit"),
           comments: lines("aQc"), outOf, notes, created: now, closed: false,
         };
+        if (isQuizForm()) {
+          const pq = Quiz.parseQuiz($("qText").value);
+          if (pq.problems.length) throw new Error(`fix the ${pq.problems.length} question${pq.problems.length === 1 ? "" : "s"} listed under the quiz first.`);
+          if (!pq.questions.length) throw new Error("add the quiz questions first (choose your file, or type them in).");
+          Object.assign(a, { type: "quiz", criteria: [], showCriteria: false, notes: "", outOf: pq.questions.reduce((x, q) => x + q.p, 0),
+            quiz: { src: $("qText").value, q: pq.questions, show: $("qShow").value, reveal: $("qReveal").checked } });
+          say(m, "Saving the answer key…");
+          await svc("PUT", `/admin/quiz?a=${d.id}`, JSON.stringify({ q: Quiz.answerKey(pq.questions), show: a.quiz.show, reveal: a.quiz.reveal }));
+        }
         const sheetEntries = [], sheetList = [];
         for (let i = 0; i < sheets.length; i++) {
           say(m, `Encrypting ${sheets[i].name}…`);
@@ -280,6 +380,7 @@
         }
         a.files = sheetList.map((f) => f.name);
         const forStudents = { title: a.title, module: a.module, brief: a.brief, deadline, criteria: a.showCriteria ? a.criteria : [], files: sheetList };
+        if (a.quiz) Object.assign(forStudents, { type: "quiz", questions: Quiz.publicQuestions(a.quiz.q), show: a.quiz.show, reveal: a.quiz.reveal, outOf: a.outOf });
         say(m, "Publishing…");
         index = await loadIndex();
         index.activities.unshift(a);
@@ -300,7 +401,9 @@
           await indexEntry(),
         ], "Add activity");
         $("newForm").reset();
-        $("aLate").checked = $("aShowCrit").checked = true;
+        $("aLate").checked = $("aShowCrit").checked = $("qReveal").checked = true;
+        $("qPreview").textContent = "";
+        syncType();
         $("newCard").hidden = true;
         updateEmpty();
         say(m, "");
@@ -316,7 +419,7 @@
   // ---------- presenter
   function present(a, fresh) {
     Lecturer.present({ title: [a.module, a.title].filter(Boolean).join(": "), code: a.code, fresh,
-      sub: "to get the task and hand in your work" + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "") + "." });
+      sub: (a.type === "quiz" ? "to start the quiz" : "to get the task and hand in your work") + (a.deadline ? " by " + MS.fmtDate(a.deadline) : "") + "." });
   }
   $("showCode").onclick = () => act && present(act);
 
@@ -333,7 +436,10 @@
     $("sTitle").textContent = a.title;
     $("toggleClose").textContent = a.closed ? "Reopen submissions" : "Close submissions";
     $("toggleClose").className = a.closed ? "btn ghost small" : "btn danger small";
-    $("aiAll").hidden = !aiOn;
+    $("aiAll").hidden = !aiOn || a.type === "quiz";
+    $("breakdown").hidden = a.type !== "quiz";
+    $("releaseAll").textContent = a.type === "quiz" ? "Release all scores" : "Release all drafts";
+    $("qStats").hidden = true;
     renderActs();
     $("subsCard").scrollIntoView({ behavior: "smooth", block: "start" });
     await loadSubs();
@@ -351,7 +457,7 @@
         let info;
         try { info = MS.toJSON(await MS.openWith(vault.priv, MS.b64d(s.m))); }
         catch { info = { name: "(couldn't decrypt)", sid: "", t: new Date(s.t).toISOString() }; }
-        out.push({ r: s.r, late: !!s.late, n: s.n, info, draft: drafts.get(s.r) || null });
+        out.push({ r: s.r, late: !!s.late, n: s.n, sc: s.sc, of: s.of, info, draft: drafts.get(s.r) || null });
       }
       // newest attempt per student is current; older ones are marked as earlier attempts
       const latest = new Map();
@@ -387,11 +493,12 @@
     const box = $("subs");
     box.textContent = "";
     if (!subs.length) {
-      box.innerHTML = `<p class="muted">No submissions yet. Students enter <b class="mono">${MS.pretty(act.code)}</b> on the student page to hand in.</p>`;
+      box.innerHTML = `<p class="muted">No ${act.type === "quiz" ? "attempts" : "submissions"} yet. Students enter <b class="mono">${MS.pretty(act.code)}</b> on the student page to hand in.</p>`;
       return;
     }
     const t = document.createElement("table");
-    t.innerHTML = "<tr><th>Student</th><th>Student no.</th><th>Submitted</th><th>Files</th><th>Status</th></tr>";
+    const quiz = act.type === "quiz";
+    t.innerHTML = "<tr><th>Student</th><th>Student no.</th><th>Submitted</th><th>" + (quiz ? "Score" : "Files") + "</th><th>Status</th></tr>";
     subs.forEach((s, i) => {
       const tr = document.createElement("tr");
       tr.className = "click" + (i === pos ? " sel" : "");
@@ -404,7 +511,7 @@
       when.textContent = MS.fmtDate(s.info.t);
       if (s.late) { const l = document.createElement("span"); l.className = "chip not"; l.textContent = "late"; when.append(" ", l); }
       const files = document.createElement("td");
-      files.textContent = `${s.info.n || "?"} · ${MS.sizeText(s.info.size || s.n || 0)}`;
+      files.textContent = quiz ? (s.sc !== undefined ? `${s.sc} / ${s.of}` : "—") : `${s.info.n || "?"} · ${MS.sizeText(s.info.size || s.n || 0)}`;
       const status = document.createElement("td");
       status.append(statusChip(s));
       tr.append(name, sid, when, files, status);
@@ -462,9 +569,19 @@
       cur = { s, pkg, draft, file: 0 };
       showReceiptBox();
       if (pkg.header.note) { $("rNote").hidden = false; $("rNote").textContent = "Student's note: " + pkg.header.note; }
-      renderTabs();
-      showFile(0);
-      fillForm(draft);
+      $("dlRow").hidden = act.type === "quiz";
+      $("rPreview").classList.toggle("quizview", act.type === "quiz");
+      if (act.type === "quiz") {
+        cur.answers = pkg.header.quiz || [];
+        cur.over = (draft && draft.overrides) || [];
+        renderQuizAnswers();
+        fillForm(draft);
+        if (!draft) $("fMark").value = quizCalc(cur.answers, cur.over).score;
+      } else {
+        renderTabs();
+        showFile(0);
+        fillForm(draft);
+      }
     } catch (e) {
       if (seq === openSeq) setPreviewNote("Couldn't open this submission: " + e.message);
     }
@@ -662,7 +779,7 @@
       box.append(row);
     });
     $("aiBadge").hidden = !(d && d.ai);
-    $("aiOne").hidden = !aiOn || !!(d && d.released);
+    $("aiOne").hidden = !aiOn || !!(d && d.released) || act.type === "quiz";
     $("fMarkWrap").hidden = !act.outOf;
     $("fOut").textContent = act.outOf ? "out of " + act.outOf : "";
     $("fMark").value = d && d.mark !== null && d.mark !== undefined ? d.mark : "";
@@ -697,7 +814,9 @@
   function readForm() {
     const criteria = act.criteria.map((_, i) => { const x = document.querySelector(`input[name="c${i}"]:checked`); return x ? x.value : null; });
     const mv = $("fMark").value.trim();
-    return { criteria, mark: mv === "" ? null : Number(mv), comment: $("fText").value.trim() };
+    const f = { criteria, mark: mv === "" ? null : Number(mv), comment: $("fText").value.trim() };
+    if (act.type === "quiz" && cur && cur.answers) { f.overrides = [...cur.over]; f.quiz = quizCalc(cur.answers, cur.over).rows; }
+    return f;
   }
 
   function feedbackFor(info, d) {
@@ -705,9 +824,11 @@
       v: 1, activity: act.title, module: act.module, name: info.name,
       criteria: act.criteria.map((c, i) => ({ c, s: (d.criteria || [])[i] || null })),
       mark: d.mark, outOf: act.outOf, comment: d.comment, released: d.releasedAt, submitted: info.t,
+      quiz: d.quiz ? d.quiz.map((r) => ({ q: r.q, your: r.your, s: r.s, p: r.p, ok: r.ok, correct: act.quiz.reveal ? r.correct : undefined })) : undefined,
     };
   }
 
+  // Feedback is stored under the student's receipt code, or under a replacement code you issued.
   async function target(s, d) {
     const code = (d && d.receipt) || s.receipt;
     if (!code) return { id: s.r, key: await MS.importAes(MS.b64d(s.info.rk)) };
@@ -768,6 +889,134 @@
     }
   });
 
+  // ---------- quiz marking views
+  function quizCalc(answers, over) {
+    const qs = act.quiz.q;
+    const m = Quiz.markQuiz(Quiz.answerKey(qs), answers);
+    let score = 0;
+    const rows = qs.map((q, i) => {
+      const r = m.results[i];
+      const accepted = over.includes(i) && !r.ok;
+      const sc = accepted ? r.p : r.s;
+      score += sc;
+      return { n: i + 1, q: q.text, your: Quiz.answerText(q, answers[i]), correct: Quiz.correctText(q), s: sc, p: r.p, ok: sc === r.p, near: r.near && !accepted, over: accepted };
+    });
+    return { score: Math.round(score * 100) / 100, outOf: m.outOf, rows };
+  }
+
+  function renderQuizAnswers() {
+    const box = $("rPreview");
+    box.textContent = "";
+    box.classList.add("quizview");
+    $("rTabs").textContent = "";
+    const c = quizCalc(cur.answers, cur.over);
+    box.append(Lecturer.el("p", { class: "qscore", text: `Score ${c.score} / ${c.outOf}` }));
+    const t = Lecturer.el("table", { class: "qtable" });
+    t.innerHTML = "<tr><th>#</th><th>Question</th><th>Answer</th><th>Result</th></tr>";
+    for (const r of c.rows) {
+      const tr = document.createElement("tr");
+      const res = r.over ? ["Accepted by you", "met"] : r.ok ? ["Correct", "met"] : r.near ? ["Close: check", "partly"] : r.s > 0 ? [`${r.s} / ${r.p}`, "partly"] : ["Wrong", "not"];
+      const ans = Lecturer.el("td");
+      ans.append(Lecturer.el("div", { text: r.your || "(no answer)" }));
+      if (!r.ok || r.over) ans.append(Lecturer.el("div", { class: "muted", text: "Answer: " + r.correct }));
+      const tdRes = Lecturer.el("td");
+      tdRes.append(Lecturer.el("span", { class: "chip " + res[1], text: res[0] }));
+      const tdAcc = tdRes;
+      if (!r.ok || r.over) {
+        const lab = Lecturer.el("label", { class: "check small" });
+        const cb = Lecturer.el("input", { type: "checkbox" });
+        cb.checked = r.over;
+        cb.onchange = () => {
+          const i = r.n - 1;
+          cur.over = cb.checked ? [...new Set([...cur.over, i])] : cur.over.filter((x) => x !== i);
+          $("fMark").value = quizCalc(cur.answers, cur.over).score;
+          renderQuizAnswers();
+        };
+        lab.append(cb, " Count as correct");
+        lab.style.marginTop = "6px";
+        tdAcc.append(lab);
+      }
+      tr.append(Lecturer.el("td", { text: String(r.n) }), Lecturer.el("td", { class: "qcell", text: r.q }), ans, tdRes);
+      t.append(tr);
+    }
+    box.append(t);
+  }
+
+  async function openPkg(s) {
+    return MS.unpack(await MS.openWith(vault.priv, await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+  }
+
+  async function releaseScores() {
+    const m = $("sMsg");
+    const todo = subs.filter((s) => !s.earlier && !(s.draft && s.draft.rel));
+    if (!todo.length) return say(m, "Every student's latest attempt already has its score released.");
+    if (!confirm(`Release scores to ${todo.length} student${todo.length === 1 ? "" : "s"}? Each student's latest attempt is used.`)) return;
+    let done = 0;
+    try {
+      for (const s of todo) {
+        say(m, `Releasing ${++done} of ${todo.length}…`);
+        let d = s.draft ? await getDraft(s) : null;
+        if (!d || !d.quiz) {
+          const pkg = await openPkg(s);
+          const c = quizCalc(pkg.header.quiz || [], (d && d.overrides) || []);
+          d = { criteria: [], comment: "", ...(d || {}), mark: d && d.mark !== null && d.mark !== undefined ? d.mark : c.score, quiz: c.rows, overrides: (d && d.overrides) || [] };
+        }
+        d.released = true;
+        d.releasedAt = new Date().toISOString();
+        d.t = d.releasedAt;
+        d.ai = false;
+        await putFeedback(s, d);
+        await putDraft(s, d);
+        if (cur && cur.s === s) { cur.draft = d; fillForm(d); }
+      }
+      say(m, `Released ${todo.length} ✓`, "ok");
+    } catch (e) {
+      say(m, e.message || e.name, "err");
+    }
+    renderSubs();
+  }
+
+  $("breakdown").onclick = () => busy($("breakdown"), "Working it out…", async () => {
+    const box = $("qStats");
+    const m = $("sMsg");
+    const use = subs.filter((s) => !s.earlier);
+    if (!use.length) return say(m, "No attempts yet.");
+    try {
+      const qs = act.quiz.q;
+      const stats = qs.map((q) => ({ right: 0, picks: new Map() }));
+      let n = 0;
+      for (const s of use) {
+        say(m, `Reading attempt ${++n} of ${use.length}…`);
+        const ans = (await openPkg(s)).header.quiz || [];
+        const c = quizCalc(ans, []);
+        c.rows.forEach((r, i) => {
+          if (r.ok) stats[i].right++;
+          else { const k = r.your || "(no answer)"; stats[i].picks.set(k, (stats[i].picks.get(k) || 0) + 1); }
+        });
+      }
+      say(m, "");
+      box.textContent = "";
+      box.append(Lecturer.el("h3", { text: `Question breakdown (${use.length} student${use.length === 1 ? "" : "s"}, latest attempts)` }));
+      const t = Lecturer.el("table", { class: "qtable" });
+      t.innerHTML = "<tr><th>#</th><th>Question</th><th>Got it right</th><th>Most common wrong answer</th></tr>";
+      qs.forEach((q, i) => {
+        const pct = Math.round((100 * stats[i].right) / use.length);
+        const top = [...stats[i].picks.entries()].sort((x, y) => y[1] - x[1])[0];
+        const tr = document.createElement("tr");
+        const bar = Lecturer.el("td");
+        bar.append(Lecturer.el("span", { class: "chip " + (pct >= 70 ? "met" : pct >= 40 ? "partly" : "not"), text: `${pct}% (${stats[i].right}/${use.length})` }));
+        tr.append(Lecturer.el("td", { text: String(i + 1) }), Lecturer.el("td", { class: "qcell", text: q.text }), bar,
+          Lecturer.el("td", { text: top ? `${top[0]} (${top[1]})` : "—" }));
+        t.append(tr);
+      });
+      box.append(t);
+      box.hidden = false;
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      say(m, e.message || e.name, "err");
+    }
+  });
+
   // ---------- receipt codes (for students who lost theirs)
   function showReceiptBox() {
     const s = cur.s;
@@ -814,6 +1063,7 @@
   }
 
   $("releaseAll").onclick = () => busy($("releaseAll"), "Releasing…", async () => {
+    if (act.type === "quiz") return releaseScores();
     const todo = subs.filter((s) => s.draft && !s.draft.rel);
     const m = $("sMsg");
     if (!todo.length) return say(m, "No unreleased drafts.");
@@ -971,12 +1221,14 @@
   };
   $("exportCsv").onclick = () => busy($("exportCsv"), "Exporting…", async () => {
     try {
-      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
+      const quiz = act.type === "quiz";
+      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...(quiz ? ["Auto score"] : []), ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
       const rows = [head];
       for (const s of subs) {
         const d = s.draft ? await getDraft(s) : null;
         rows.push([
           s.info.name, s.info.sid, MS.fmtDate(s.info.t), s.late ? "yes" : "", s.earlier ? "yes" : "",
+          ...(quiz ? [s.sc !== undefined ? s.sc : ""] : []),
           ...act.criteria.map((_, i) => (d && d.criteria && d.criteria[i] ? LABEL[d.criteria[i]] : "")),
           d ? d.mark : "", act.outOf || "", !d ? "Not started" : d.released ? "Released" : "Draft",
           d && d.releasedAt ? MS.fmtDate(d.releasedAt) : "", d ? d.comment : "",
