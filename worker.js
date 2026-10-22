@@ -13,6 +13,9 @@
  *              MAX_MB    optional, default 20 (Cloudflare KV limit is 25)
  *              AI_MODEL  optional, default @cf/meta/llama-4-scout-17b-16e-instruct
  *
+ * Quizzes: the answer key is stored here (KV "q:<activity>") so students can't read it from the
+ * site; each attempt is marked here, and the student's name and answers are stored encrypted.
+ *
  * Lecturer endpoints (/admin/*) require the lecturer's GitHub token; it is accepted only if
  * its owner can push to REPO.
  */
@@ -49,6 +52,7 @@ export default {
 
       if (path === "/" && m === "GET") return reply("Materials Share submissions service is running.", 200, "text/plain");
       if (path === "/submit" && m === "POST") return await submit(request, env, q, json);
+      if (path === "/quiz" && m === "POST") return await quiz(request, env, q, json);
 
       const fb = path.match(/^\/feedback\/([0-9a-f]{32})$/);
       if (fb && m === "GET") {
@@ -103,6 +107,13 @@ async function submit(request, env, q, json) {
   const meta = request.headers.get("X-Meta") || "";
   if (!META.test(meta)) throw fail(400, "bad meta");
 
+  const late = await openActivity(env, a);
+  const t = Date.now();
+  await env.KV.put(`s:${a}:${r}`, request.body, { metadata: { t, n: len, late, m: meta } });
+  return json({ ok: true, t, late }, 201);
+}
+
+async function openActivity(env, a) {
   const site = env.SITE_URL.replace(/\/+$/, "");
   const res = await fetch(`${site}/a/${a}/meta.json`, { cf: { cacheTtl: 30 } });
   if (res.status === 404) throw fail(404, "Activity not found. If it was only just created, try again in a minute.");
@@ -110,10 +121,97 @@ async function submit(request, env, q, json) {
   const act = await res.json();
   const late = !!(act.deadline && Date.now() > Date.parse(act.deadline));
   if (act.closed || (late && !act.late)) throw fail(403, "Submissions for this activity are closed.");
+  return late;
+}
 
+// body: [4-byte length][answers JSON][sealed package for the lecturer]
+async function quiz(request, env, q, json) {
+  const a = hex(q, "a");
+  const r = hex(q, "r");
+  const len = bodyLength(request);
+  if (!len) throw fail(411, "Missing upload size.");
+  if (len > 524288) throw fail(413, "Too large.");
+  const meta = request.headers.get("X-Meta") || "";
+  if (!META.test(meta)) throw fail(400, "bad meta");
+  const raw = await env.KV.get("q:" + a);
+  if (!raw) throw fail(404, "This quiz isn't ready yet. Try again in a minute.");
+  const keyRec = JSON.parse(raw);
+  const late = await openActivity(env, a);
+
+  const buf = new Uint8Array(await request.arrayBuffer());
+  if (buf.length < 4) throw fail(400, "bad body");
+  const n = new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getUint32(0);
+  if (n > 65536 || 4 + n > buf.length) throw fail(400, "bad body");
+  let answers;
+  try { answers = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + n))); } catch { throw fail(400, "bad answers"); }
+  if (!Array.isArray(answers) || answers.length !== keyRec.q.length) throw fail(400, "This quiz has changed. Reload the page and try again.");
+  const sealed = buf.slice(4 + n);
+  if (!sealed.length) throw fail(400, "bad body");
+
+  const res = markQuiz(keyRec.q, answers);
   const t = Date.now();
-  await env.KV.put(`s:${a}:${r}`, request.body, { metadata: { t, n: len, late, m: meta } });
-  return json({ ok: true, t, late }, 201);
+  await env.KV.put(`s:${a}:${r}`, sealed, { metadata: { t, n: sealed.length, late, m: meta, sc: res.score, of: res.outOf } });
+  const out = { ok: true, t, late };
+  if (keyRec.show === "now") {
+    out.score = res.score;
+    out.outOf = res.outOf;
+    out.results = res.results.map((x) => ({ s: x.s, p: x.p, ok: x.ok }));
+    if (keyRec.reveal) out.correct = keyRec.q.map((k) => (k.t === "blank" ? k.a.map((g) => g[0]) : k.a));
+  }
+  return json(out, 201);
+}
+
+// ---------- quiz marking (keep in step with quiz.js)
+function qNorm(s) {
+  return String(s == null ? "" : s).normalize("NFKC").toLowerCase().replace(/[‘’`]/g, "'").replace(/[“”]/g, '"')
+    .replace(/\s+/g, " ").trim().replace(/[.!?,;:]+$/, "").trim();
+}
+function qNum(s) {
+  const t = s.replace(/,/g, "").replace(/\s+/g, "");
+  return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t) ? Number(t) : null;
+}
+function qBlank(resp, accepted) {
+  const r = qNorm(resp);
+  if (!r) return false;
+  for (const a0 of accepted) {
+    let a = qNorm(a0);
+    let tol = 0;
+    const pm = /^(.+?)\s*(?:±|\+\/-|\+-)\s*([\d.]+)$/.exec(a);
+    if (pm) { a = pm[1].trim(); tol = Number(pm[2]) || 0; }
+    const na = qNum(a), nr = qNum(r);
+    if (na !== null) { if (nr !== null && Math.abs(na - nr) <= tol + 1e-9) return true; continue; }
+    if (r === a) return true;
+  }
+  return false;
+}
+function markQuiz(key, answers) {
+  let score = 0, outOf = 0;
+  const results = key.map((q, i) => {
+    const p = Number(q.p) || 1;
+    outOf += p;
+    const ans = answers[i];
+    let s = 0;
+    if (q.t === "mcq") s = Number.isInteger(ans) && q.a.length === 1 && q.a[0] === ans ? p : 0;
+    else if (q.t === "multi") {
+      const got = Array.isArray(ans) ? [...new Set(ans.filter(Number.isInteger))].sort() : [];
+      const want = [...q.a].sort();
+      s = got.length === want.length && got.every((x, k) => x === want[k]) ? p : 0;
+    } else {
+      const list = Array.isArray(ans) ? ans : [];
+      let right = 0;
+      q.a.forEach((acc, k) => { if (qBlank(list[k], acc)) right++; });
+      s = Math.round((p * right / q.a.length) * 100) / 100;
+    }
+    score += s;
+    return { s, p, ok: s === p };
+  });
+  return { score: Math.round(score * 100) / 100, outOf, results };
+}
+
+function validKey(k) {
+  if (!k || !Array.isArray(k.q) || !k.q.length || k.q.length > 200) return false;
+  return k.q.every((x) => x && ["mcq", "multi", "blank"].includes(x.t) && Array.isArray(x.a) && x.a.length &&
+    (x.t === "blank" ? x.a.every((g) => Array.isArray(g) && g.every((v) => typeof v === "string" && v.length <= 200)) : x.a.every(Number.isInteger)));
 }
 
 async function requireLecturer(request, env) {
@@ -197,6 +295,21 @@ async function admin(path, m, q, request, env, reply, json) {
     }
     if (m === "DELETE") {
       await env.KV.delete("k:" + id);
+      return json({ ok: true });
+    }
+  }
+
+  if (path === "/admin/quiz") {
+    const a = hex(q, "a");
+    if (m === "PUT") {
+      if (bodyLength(request) > 262144) throw fail(413, "Quiz too large.");
+      const k = await request.json();
+      if (!validKey(k)) throw fail(400, "That quiz couldn't be saved: check the questions.");
+      await env.KV.put("q:" + a, JSON.stringify({ q: k.q, show: k.show === "release" ? "release" : "now", reveal: !!k.reveal }));
+      return json({ ok: true });
+    }
+    if (m === "DELETE") {
+      await env.KV.delete("q:" + a);
       return json({ ok: true });
     }
   }
