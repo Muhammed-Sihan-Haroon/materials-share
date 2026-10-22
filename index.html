@@ -412,8 +412,8 @@
       const rk = MS.b64e(rd.raw);
       const files = [];
       for (const f of picked) files.push({ name: f.name, type: f.type, data: new Uint8Array(await f.arrayBuffer()) });
-      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note, t, rk }, files));
-      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, n: files.length, size: total })));
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note, t, rk, rc: receipt }, files));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: files.length, size: total })));
 
       msg.textContent = "Uploading…";
       await upload(`${SVC}/submit?a=${current.id}&r=${rd.id}`, body, meta, (p) => {
