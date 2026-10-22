@@ -78,19 +78,22 @@
       </div>
     </div>
     <div class="card">
-      <h2>Hand in your work</h2>
+      <h2 id="subHead">Hand in your work</h2>
       <p class="err" id="aClosed" hidden></p>
       <form id="subForm">
         <div class="grid">
           <div><label for="sName">Full name</label><input id="sName" maxlength="60" autocomplete="name" required></div>
           <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" required></div>
         </div>
+        <div id="qBox" class="quiz" hidden></div>
+        <div id="fileBits">
         <label for="sFiles">Files</label>
         <input id="sFiles" type="file" multiple required>
         <p class="hint" id="sFilesInfo">Up to 20 MB in total.</p>
         <label for="sNote">Note to your lecturer (optional)</label>
         <textarea id="sNote" maxlength="1000" style="min-height:70px"></textarea>
-        <p class="hint" style="margin:14px 0 16px">Your work is encrypted on this device before it's sent, and only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
+        </div>
+        <p class="hint" id="subHint" style="margin:14px 0 16px">Your work is encrypted on this device before it's sent, and only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
         <button class="btn" id="subBtn">Hand in</button>
         <div class="bar" id="bar" hidden><span id="barFill"></span></div>
         <p id="subMsg" class="muted"></p>
@@ -103,9 +106,10 @@
   <div class="card narrow" id="receipt" hidden>
     <h1 class="ok">Handed in</h1>
     <p class="muted" id="rWhat"></p>
+    <div id="rQuiz" hidden></div>
     <h2 style="margin-top:22px">Your receipt code</h2>
     <div class="receipt-code" id="rCode"></div>
-    <p class="muted">Enter this code here later to read your feedback. Keep it private, because anyone with it can read your feedback.</p>
+    <p class="muted">Enter this code here later to read your feedback. Keep it private, because anyone with it can read your feedback. If you lose it, ask your lecturer.</p>
     <p class="actions" style="margin-top:16px">
       <button class="btn ghost" id="rCopy">Copy code</button>
       <button class="btn ghost" id="rSave">Save receipt</button>
@@ -121,6 +125,7 @@
       <p class="muted" id="fInfo"></p>
       <div id="fMarkWrap" hidden><div class="mark-big" id="fMark"></div></div>
       <div id="fCrit" style="margin-top:12px"></div>
+      <div id="fQuiz" hidden></div>
       <div id="fCommentWrap" hidden>
         <h2 style="margin-top:22px">Comments</h2>
         <div class="brief" id="fComment"></div>
@@ -147,6 +152,7 @@
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
   };
 
   function show(id) {
@@ -315,6 +321,155 @@
     }
   };
 
+  // ---------- quiz (questions only: answers stay with the marking service)
+  const WORK_HINT = $("subHint").textContent;
+  const quizKey = () => "ms-quiz-" + current.id;
+  function setupQuiz(b) {
+    const quiz = b.type === "quiz";
+    $("subHead").textContent = quiz ? "Answer the quiz" : "Hand in your work";
+    $("fileBits").hidden = quiz;
+    $("sFiles").required = !quiz;
+    $("qBox").hidden = !quiz;
+    $("subBtn").textContent = quiz ? "Submit answers" : "Hand in";
+    $("subHint").textContent = quiz
+      ? "Your answers are marked automatically. Your name, student number and answers are stored encrypted, and only your lecturer can see who answered what."
+      : WORK_HINT;
+    if (quiz) renderQuestions(b);
+  }
+  function renderQuestions(b) {
+    const box = $("qBox");
+    box.textContent = "";
+    const saved = store.get(quizKey()) || [];
+    b.questions.forEach((q, i) => {
+      const fs = document.createElement("fieldset");
+      fs.className = "qq";
+      fs.dataset.i = i;
+      const lg = document.createElement("legend");
+      lg.textContent = `Question ${i + 1}` + (q.p !== 1 ? ` (${q.p} marks)` : "");
+      fs.append(lg);
+      const text = document.createElement("div");
+      text.className = "qtext";
+      const prev = saved[i];
+      if (q.t === "blank") {
+        const parts = q.text.split(/_{3,}/);
+        parts.forEach((part, k) => {
+          text.append(part);
+          if (k < parts.length - 1) {
+            const inp = document.createElement("input");
+            inp.className = "blank";
+            inp.maxLength = 200;
+            inp.autocomplete = "off";
+            inp.setAttribute("autocapitalize", "off");
+            inp.setAttribute("spellcheck", "false");
+            inp.setAttribute("aria-label", `Question ${i + 1}, blank ${k + 1}`);
+            inp.value = (Array.isArray(prev) && prev[k]) || "";
+            text.append(inp);
+          }
+        });
+        fs.append(text);
+      } else {
+        text.textContent = q.text;
+        fs.append(text);
+        if (q.t === "multi") fs.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Choose all that apply." }));
+        q.options.forEach((o, k) => {
+          const l = document.createElement("label");
+          l.className = "opt";
+          const inp = document.createElement("input");
+          inp.type = q.t === "multi" ? "checkbox" : "radio";
+          inp.name = "q" + i;
+          inp.value = k;
+          inp.checked = q.t === "multi" ? Array.isArray(prev) && prev.includes(k) : prev === k;
+          const span = document.createElement("span");
+          span.textContent = o;
+          l.append(inp, span);
+          fs.append(l);
+        });
+      }
+      box.append(fs);
+    });
+    box.oninput = box.onchange = () => store.set(quizKey(), collectAnswers());
+  }
+  function collectAnswers() {
+    return current.brief.questions.map((q, i) => {
+      const fs = $("qBox").querySelector(`fieldset[data-i="${i}"]`);
+      if (q.t === "blank") return [...fs.querySelectorAll("input.blank")].map((x) => x.value.trim().slice(0, 200));
+      const on = [...fs.querySelectorAll("input:checked")].map((x) => Number(x.value));
+      return q.t === "multi" ? on : on.length ? on[0] : null;
+    });
+  }
+  const unanswered = (ans) => ans.filter((a) => a === null || (Array.isArray(a) && (!a.length || a.every((x) => x === "")))).length;
+
+  async function submitQuiz(name, sid) {
+    const msg = $("subMsg");
+    const answers = collectAnswers();
+    const missing = unanswered(answers);
+    if (missing && !confirm(`You haven't answered ${missing} question${missing === 1 ? "" : "s"}. Submit anyway?`)) return;
+    const btn = $("subBtn");
+    btn.disabled = true;
+    msg.className = "muted";
+    try {
+      msg.textContent = "Encrypting…";
+      const kr = await fetch(base + "keys/lecturer.json", { cache: "no-store" });
+      if (!kr.ok) throw new Error("Your lecturer hasn't finished setting up submissions yet.");
+      const pub = await MS.importPub((await kr.json()).pub);
+      const receipt = MS.newCode();
+      const rd = await MS.derive(receipt, SITE.salt);
+      const t = new Date().toISOString();
+      const rk = MS.b64e(rd.raw);
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note: "", t, rk, rc: receipt, quiz: answers }, []));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: 0, size: 0 })));
+      const aj = MS.fromJSON(answers);
+      const framed = new Uint8Array(4 + aj.length + body.length);
+      new DataView(framed.buffer).setUint32(0, aj.length);
+      framed.set(aj, 4);
+      framed.set(body, 4 + aj.length);
+      msg.textContent = "Submitting…";
+      let r;
+      try { r = await fetch(`${SVC}/quiz?a=${current.id}&r=${rd.id}`, { method: "POST", headers: { "X-Meta": meta }, body: framed }); }
+      catch { throw new Error("Couldn't reach the marking service. Check your connection and try again."); }
+      let j = {};
+      try { j = await r.json(); } catch {}
+      if (r.status !== 201) throw new Error(j.error || "Couldn't submit (" + r.status + ")");
+      const list = store.get("ms-receipts") || [];
+      list.unshift({ code: receipt, title: current.brief.title, t });
+      store.set("ms-receipts", list.slice(0, 30));
+      store.del(quizKey());
+      showReceipt(receipt, name, [], t, { ...j, answers });
+      $("subForm").reset();
+    } catch (e) {
+      msg.className = "err";
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function ansText(q, a) {
+    if (q.t === "mcq") return Number.isInteger(a) ? q.options[a] : "";
+    if (q.t === "multi") return Array.isArray(a) ? a.map((k) => q.options[k]).join("; ") : "";
+    return Array.isArray(a) ? a.map((x) => x || "(blank)").join("; ") : "";
+  }
+
+  function quizResultList(rows) {
+    const ol = document.createElement("ol");
+    ol.className = "qres";
+    for (const r of rows) {
+      const li = document.createElement("li");
+      li.className = r.ok ? "right" : r.s > 0 ? "part" : "wrong";
+      const head = document.createElement("div");
+      const mark = document.createElement("b");
+      mark.textContent = r.ok ? "✓ " : r.s > 0 ? "◐ " : "✗ ";
+      head.append(mark, r.q.replace(/_{3,}/g, "____"));
+      li.append(head);
+      const add = (label, v) => { if (v === undefined || v === null || v === "") return; const d = document.createElement("div"); d.className = "muted"; d.textContent = label + v; li.append(d); };
+      add("Your answer: ", r.your || "(no answer)");
+      if (!r.ok) add("Correct answer: ", r.correct);
+      if (r.p !== 1 || (r.s > 0 && !r.ok)) add("", `${r.s} / ${r.p}`);
+      ol.append(li);
+    }
+    return ol;
+  }
+
   // ---------- activity
   function renderActivity() {
     const b = current.brief;
@@ -357,6 +512,7 @@
     $("subForm").hidden = !!closed;
     $("subMsg").textContent = "";
     $("bar").hidden = true;
+    setupQuiz(b);
   }
 
   $("sFiles").onchange = () => {
@@ -391,6 +547,7 @@
     const name = $("sName").value.trim();
     const sid = $("sId").value.trim();
     const note = $("sNote").value.trim();
+    if (current.brief.type === "quiz") { if (name && sid) await submitQuiz(name, sid); return; }
     const picked = [...$("sFiles").files];
     const total = picked.reduce((a, f) => a + f.size, 0);
     if (!name || !sid || !picked.length) return;
@@ -435,10 +592,36 @@
     }
   };
 
-  function showReceipt(code, name, files, t) {
+  function showReceipt(code, name, files, t, res) {
     show("receipt");
     MS.tiles($("rCode"), code);
-    $("rWhat").textContent = `${current.brief.title}: ${files.length} file${files.length === 1 ? "" : "s"} handed in on ${MS.fmtDate(t)}.`;
+    const quiz = current.brief.type === "quiz";
+    $("rWhat").textContent = quiz ? `${current.brief.title}: answers submitted on ${MS.fmtDate(t)}.`
+      : `${current.brief.title}: ${files.length} file${files.length === 1 ? "" : "s"} handed in on ${MS.fmtDate(t)}.`;
+    const rq = $("rQuiz");
+    rq.textContent = "";
+    rq.hidden = !quiz;
+    if (quiz) {
+      if (res && res.score !== undefined) {
+        const big = document.createElement("div");
+        big.className = "mark-big";
+        big.textContent = `${res.score} / ${res.outOf}`;
+        rq.append(big);
+        const qs = current.brief.questions;
+        const ans = res.answers || [];
+        const rows = qs.map((q, i) => {
+          const r = res.results[i];
+          const c = res.correct && res.correct[i];
+          const correct = !c ? undefined : q.t === "blank" ? c.join("; ") : c.map((k) => q.options[k]).join("; ");
+          return { q: q.text, your: ansText(q, ans[i]), s: r.s, p: r.p, ok: r.ok, correct };
+        });
+        rq.append(quizResultList(rows));
+      } else {
+        const p = document.createElement("p");
+        p.textContent = "Your lecturer will release your score. Enter your receipt code here later to see it.";
+        rq.append(p);
+      }
+    }
     $("rCopy").textContent = "Copy code";
     $("rCopy").onclick = async () => {
       try { await navigator.clipboard.writeText(MS.pretty(code)); $("rCopy").textContent = "Copied ✓"; } catch { $("rCopy").textContent = MS.pretty(code); }
@@ -448,7 +631,7 @@
         `${SITE.name} — submission receipt`, "",
         `Activity: ${[current.brief.module, current.brief.title].filter(Boolean).join(" · ")}`,
         `Name: ${name}`, `Submitted: ${MS.fmtDate(t)}`,
-        `Files: ${files.map((f) => f.name).join(", ")}`, "",
+        quiz ? "Quiz answers submitted" : `Files: ${files.map((f) => f.name).join(", ")}`, "",
         `Receipt code: ${MS.pretty(code)}`,
         `Feedback: ${base}#${code}`, "",
         "Keep this code private: anyone with it can read your feedback.",
@@ -646,6 +829,9 @@
       row.append(t, chip);
       box.append(row);
     }
+    $("fQuiz").textContent = "";
+    $("fQuiz").hidden = !fb.quiz;
+    if (fb.quiz) $("fQuiz").append(quizResultList(fb.quiz));
     $("fCommentWrap").hidden = !fb.comment;
     $("fComment").textContent = fb.comment || "";
   }
