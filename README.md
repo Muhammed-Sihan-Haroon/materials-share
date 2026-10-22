@@ -81,6 +81,8 @@ flowchart TB
 | Released feedback | Cloudflare KV | Key derived from the receipt code | The student with the receipt |
 | Lecturer's private key and data | GitHub repo (`keys/`) | Vault key | Lecturer |
 | GitHub token | Lecturer's browser | Vault key | Lecturer, on that device |
+| Quiz questions | GitHub repo (`a/`) | Key derived from the activity code | Anyone with the code (no answers included) |
+| Quiz answer keys | Cloudflare KV (`q:…`) | Not encrypted: the service needs them to mark | The submissions service only |
 
 ### A student hands in work and gets feedback
 
@@ -239,6 +241,16 @@ Students then go to `get.yourdomain.com`.
 - **Students** enter the activity code, read the brief, upload files (20 MB total) with their name and student number, and get a **receipt code**.
 - **You** open the activity, click a submission to preview it (PDF, Word, images, code, notebooks, zip listings), tick *Met / Partly met / Not yet* per criterion, add a mark and comments (click quick comments to insert them), then **Save draft** or **Save & release**. *Release all drafts* and *Export CSV* work per activity.
 - **Students** enter their receipt code to read released feedback. *Withdraw* hides it again.
+
+### Quizzes (multiple choice and fill in the blank)
+
+- **New activity → Quiz**, then choose a **Word, PDF or text file** with your questions. The page reads it and shows each question with its answers ticked, so you can check them before publishing. You can also edit the text in the box.
+- Writing the file: number each question (`1.`), letter the options (`a)`), and mark the right one with `*` at the end, by making it **bold**, or with an `Answer: b` line. Fill in the blank: `RAM is [[volatile|temporary]] memory.` Short answer: a question with an `Answer:` line. `(2 marks)` sets the marks. [Download the Word template](templates/Quiz_Template.docx).
+- The answer key is kept by the submissions service, not in the published quiz, so students can't find it in the page. Each attempt is marked there. Capitals, spaces and a final full stop don't matter; numbers can have a range (`3.14 ± 0.01`).
+- Choose whether students see their score **straight away** or **when you release it**, and whether they see the correct answers.
+- In **Activities & marking** you see each score, every answer, near-misses flagged as "Close: check", and a **Count as correct** tick to accept an answer. **Release all scores** releases everyone's latest attempt. **Question breakdown** shows how many got each question right and the most common wrong answer.
+- Quizzes are for formative checks: students can retake them (the latest attempt counts) and nothing stops them looking things up.
+- Quizzes need the updated `worker.js` deployed to Cloudflare.
 
 ### Worksheets, model answers and AI drafts
 
