@@ -12,6 +12,8 @@
  *              SITE_URL  e.g. https://h-sihan.github.io/Materials-Share
  *              MAX_MB    optional, default 20 (Cloudflare KV limit is 25)
  *              AI_MODEL  optional, default @cf/meta/llama-4-scout-17b-16e-instruct
+ *   Secrets:   OPENAI_API_KEY  optional: AI drafts use OpenAI (GPT) instead of Workers AI
+ *              OPENAI_MODEL    optional variable, default gpt-5.4-mini
  *
  * Quizzes: the answer key is stored here (KV "q:<activity>") so students can't read it from the
  * site; each attempt is marked here, and the student's name and answers are stored encrypted.
@@ -23,6 +25,7 @@ const HEX = /^[0-9a-f]{32}$/;
 const META = /^[A-Za-z0-9+/=]{1,900}$/;
 const authCache = new Map();
 const DEFAULT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 
 export default {
   async fetch(request, env) {
@@ -245,10 +248,10 @@ async function admin(path, m, q, request, env, reply, json) {
     return request.arrayBuffer();
   };
 
-  if (path === "/admin/ping") return json({ ok: true, ai: !!env.AI });
+  if (path === "/admin/ping") return json({ ok: true, ai: !!(env.OPENAI_API_KEY || env.AI), provider: env.OPENAI_API_KEY ? "openai" : env.AI ? "workers-ai" : null });
 
   if (path === "/admin/ai" && m === "POST") {
-    if (!env.AI) throw fail(501, "AI drafting isn't switched on: add a Workers AI binding called AI to the submissions service.");
+    if (!env.OPENAI_API_KEY && !env.AI) throw fail(501, "AI drafting isn't switched on: add an OPENAI_API_KEY secret, or a Workers AI binding called AI, to the submissions service.");
     if (bodyLength(request) > 400000) throw fail(413, "Too much text to check in one go.");
     return json(await draftFeedback(env, await request.json()));
   }
@@ -408,6 +411,10 @@ async function draftFeedback(env, body) {
   const act = body.activity || {};
   const sub = body.submission || {};
   const { system, user, n } = buildPrompt(act, sub);
+  if (env.OPENAI_API_KEY) {
+    const model = env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
+    return { ...parseDraft(await openaiDraft(env, model, system, user), n, Number(act.outOf) || null), model };
+  }
   const model = env.AI_MODEL || DEFAULT_MODEL;
   let res;
   try {
@@ -422,4 +429,37 @@ async function draftFeedback(env, body) {
     throw fail(502, "The AI service didn't respond: " + msg.slice(0, 200));
   }
   return { ...parseDraft(textOf(res), n, Number(act.outOf) || null), model };
+}
+
+// OpenAI (GPT) via the Chat Completions API. The key is a Worker secret and never reaches the browser.
+async function openaiDraft(env, model, system, user) {
+  let r;
+  try {
+    r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.OPENAI_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        max_completion_tokens: 6000,
+        response_format: { type: "json_object" },
+      }),
+    });
+  } catch (e) {
+    throw fail(502, "Couldn't reach OpenAI. Try again in a minute.");
+  }
+  let j = {};
+  try { j = await r.json(); } catch {}
+  const err = (j && j.error) || {};
+  const detail = String(err.message || "").slice(0, 200);
+  if (r.status === 401) throw fail(502, "OpenAI didn't accept the API key. Check the OPENAI_API_KEY secret on the submissions service.");
+  if (r.status === 429) throw fail(429, err.code === "insufficient_quota"
+    ? "Your OpenAI account has no credit left. Add credit at platform.openai.com → Billing."
+    : "OpenAI is busy or the rate limit was reached. Try again in a minute.");
+  if (r.status === 404 || err.code === "model_not_found") throw fail(502, `OpenAI doesn't offer the model "${model}" to this key. Set an OPENAI_MODEL variable to a model your account lists.`);
+  if (!r.ok) throw fail(502, "OpenAI returned an error: " + (detail || r.status));
+  const c = j.choices && j.choices[0];
+  const text = (c && c.message && c.message.content) || "";
+  if (!text) throw fail(502, c && c.finish_reason === "length" ? "OpenAI ran out of room before finishing. Try again, or use a smaller submission." : "OpenAI sent back an empty reply. Try again.");
+  return text;
 }
