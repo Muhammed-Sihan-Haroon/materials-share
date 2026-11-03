@@ -259,6 +259,7 @@ Students then go to `get.yourdomain.com`.
 - Drafts are marked **AI draft** with the AI's one-line reason under each criterion (only you see the reasons). **Nothing reaches students until you release it.** Editing and saving a draft marks it as reviewed; *Release all drafts* warns you if any AI drafts haven't been edited.
 - Images and scanned PDFs can't be read by the checker — look at those yourself.
 - Free allowance: Workers AI includes 10,000 "neurons" a day, enough for roughly 50 drafts; it resets at 00:00 UTC. Set an `AI_MODEL` variable on the worker to try another model.
+- **Using OpenAI (GPT) instead:** add a secret called `OPENAI_API_KEY` to the worker (Settings → Variables and secrets → Add → type *Secret*). When it is set, drafts use OpenAI instead of Workers AI. The default model is `gpt-5.4-mini`; add a text variable `OPENAI_MODEL` to choose another. Delete the secret to go back to Workers AI. Submission text is then sent to OpenAI's API, so check this fits your institution's data policy.
 - Student work is sent as text to Workers AI only when you click an AI button; the student submit page tells students an AI tool may help draft feedback.
 
 ### Privacy
