@@ -90,6 +90,7 @@
         <div><p class="muted" id="sMod" style="margin:0"></p><h2 id="sTitle" style="margin:0"></h2><p class="muted" id="sInfo" style="margin:4px 0 0"></p></div>
         <div class="actions">
           <button class="btn ghost small" id="showCode">Show code</button>
+          <button class="btn ghost small" id="editDue">Change deadline</button>
           <button class="btn ghost small" id="refresh">Refresh</button>
           <button class="btn small" id="aiAll" hidden>AI draft all new</button>
           <button class="btn ghost small" id="releaseAll">Release all drafts</button>
@@ -145,6 +146,23 @@
     </div>
   </div>
 </main>
+
+<dialog id="dueDlg">
+  <form method="dialog" id="dueForm">
+    <h2>Change deadline</h2>
+    <p class="muted" id="dueFor" style="margin-top:0"></p>
+    <label for="dueAt">New deadline</label>
+    <input id="dueAt" type="datetime-local">
+    <label class="check"><input type="checkbox" id="dueNone"> No deadline</label>
+    <label class="check"><input type="checkbox" id="dueLate"> Accept late submissions (they're flagged as late)</label>
+    <p class="hint">Work already handed in, marks and feedback are not changed. Students see the new deadline within about a minute.</p>
+    <p class="actions" style="margin-top:16px">
+      <button class="btn" value="save" id="dueSave">Save</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </p>
+    <p class="err" id="dueMsg"></p>
+  </form>
+</dialog>
 
 <script src="config.js"></script>
 <script src="shared.js"></script>
@@ -541,6 +559,46 @@
     $("toggleClose").textContent = act.closed ? "Reopen submissions" : "Close submissions";
     $("toggleClose").className = act.closed ? "btn ghost small" : "btn danger small";
   });
+
+  // ---------- change deadline (only the activity's public status file and your list change)
+  const toLocalInput = (iso) => iso ? new Date(Date.parse(iso) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+  $("editDue").onclick = () => {
+    if (!act) return;
+    $("dueFor").textContent = act.title + (act.deadline ? " (currently due " + MS.fmtDate(act.deadline) + ")" : " (currently no deadline)");
+    $("dueAt").value = toLocalInput(act.deadline);
+    $("dueNone").checked = !act.deadline;
+    $("dueLate").checked = act.late !== false;
+    $("dueMsg").textContent = "";
+    $("dueDlg").showModal();
+  };
+  $("dueNone").onchange = () => { if ($("dueNone").checked) $("dueAt").value = ""; };
+  $("dueAt").oninput = () => { if ($("dueAt").value) $("dueNone").checked = false; };
+  $("dueForm").onsubmit = (ev) => {
+    if (ev.submitter && ev.submitter.value === "cancel") return;
+    ev.preventDefault();
+    const none = $("dueNone").checked;
+    if (!none && !$("dueAt").value) return say($("dueMsg"), "Choose a date and time, or tick No deadline.", "err");
+    const deadline = none ? null : new Date($("dueAt").value).toISOString();
+    busy($("dueSave"), "Saving…", async () => {
+      try {
+        index = await loadIndex();
+        const a = index.activities.find((x) => x.id === act.id);
+        if (!a) throw new Error("This activity is no longer in your list. Reload the page.");
+        a.deadline = deadline;
+        a.late = $("dueLate").checked;
+        await gh.commit([{ path: `a/${a.id}/meta.json`, bytes: MS.fromJSON(publicMeta(a)) }, await indexEntry()], "Change deadline");
+        act = a;
+        $("dueDlg").close();
+        const st = MS.activityState(publicMeta(a));
+        say($("sMsg"), (deadline ? "Deadline changed to " + MS.fmtDate(deadline) + "." : "Deadline removed.") +
+          (a.closed ? " Submissions are still closed: press Reopen submissions to accept work." : st === "closed" ? " That time has passed and late work isn't accepted, so submissions are now closed." : ""), "ok");
+        renderActs();
+        renderSubs();
+      } catch (e) {
+        say($("dueMsg"), e.message || e.name, "err");
+      }
+    });
+  };
 
   // ---------- review one submission
   async function openSub(i) {
