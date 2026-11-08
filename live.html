@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<title>Live quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="ltop"></header>
+<main class="wrap">
+  <div id="app" hidden>
+    <h1 style="margin:0 0 6px">Live quiz</h1>
+    <p class="muted" style="margin-top:0">Play a quiz together in class: questions on the projector, students answer on their phones, fastest correct answers score most.</p>
+    <form class="card" id="setup">
+      <h2>Choose the questions</h2>
+      <label for="src">Questions from</label>
+      <select id="src"></select>
+      <div id="fileBox" hidden>
+        <label for="qFile">Quiz file (Word, PDF or text)</label>
+        <input id="qFile" type="file" accept=".docx,.pdf,.txt,.md,.text">
+        <p class="hint">Same format as quiz activities. <a href="templates/Quiz_Template.docx" download>Download the Word template</a></p>
+        <label for="qText">Questions (you can edit them here)</label>
+        <textarea id="qText" class="mono" style="min-height:180px"></textarea>
+      </div>
+      <p id="qInfo" class="muted"></p>
+      <div class="grid">
+        <div><label for="gTitle">Game title</label><input id="gTitle" maxlength="120" placeholder="Week 5 networking"></div>
+        <div><label for="secs">Time per question</label>
+          <select id="secs"><option value="10">10 seconds</option><option value="20" selected>20 seconds</option><option value="30">30 seconds</option><option value="45">45 seconds</option><option value="60">1 minute</option><option value="90">90 seconds</option></select></div>
+      </div>
+      <p class="actions" style="margin-top:16px"><button class="btn" id="startBtn">Open the game</button></p>
+      <p id="setupMsg" class="muted"></p>
+      <p class="hint">Scores and nicknames are kept for a day so you can download the results, then deleted automatically. Nothing here changes your activities or submissions.</p>
+    </form>
+  </div>
+</main>
+
+<section id="stage" class="live-stage" hidden aria-live="polite">
+  <div class="ls-top">
+    <span id="sTitle" class="ls-title"></span>
+    <span id="sProg" class="ls-prog"></span>
+    <span class="ls-pin">PIN <b id="sPin"></b></span>
+  </div>
+  <div id="sBody" class="ls-body"></div>
+  <div id="flagPanel" class="ls-flags" hidden>
+    <div class="row" style="align-items:center"><h2 style="margin:0">Integrity alerts</h2><button class="btn ghost small" id="flagClose">Close</button></div>
+    <p class="muted">Copying a question, pasting into an answer, right-clicking or leaving the game while a question was open. These are signals, not proof. This panel is on your screen: close it before projecting if you prefer.</p>
+    <div id="flagList"></div>
+  </div>
+  <div class="ls-bar">
+    <span id="sStatus" class="ls-status"></span>
+    <span class="actions">
+      <button class="btn ghost" id="sFlags" hidden title="Integrity alerts: only shown when you open this panel"></button>
+      <button class="btn ghost" id="sCsv" hidden>Download results (CSV)</button>
+      <button class="btn ghost" id="sEnd">End game</button>
+      <button class="btn" id="sNext">Start</button>
+    </span>
+  </div>
+</section>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="quiz.js"></script>
+<script src="integrity.js"></script>
+<script src="gh.js"></script>
+<script src="lecturer.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const el = Lecturer.el, say = Lecturer.say;
+  const SHAPES = ["▲", "◆", "●", "■", "★", "⬟", "⬢", "✚"];
+  let L = null, index = null, pin = "", st = null, timer = 0, autoRevealed = -1, busyGo = false;
+
+  const MAMMOTH = "vendor/mammoth.browser.min.js", PDFJS = "vendor/pdf.min.js", PDFJS_WORKER = "vendor/pdf.worker.min.js";
+  const loaded = new Map();
+  const loadScript = (src) => {
+    if (!loaded.has(src)) loaded.set(src, new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error("couldn't load " + src)); document.head.append(s); }));
+    return loaded.get(src);
+  };
+  const loaders = { mammoth: () => loadScript(MAMMOTH), pdf: async () => { await loadScript(PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; } };
+
+  function chosen() {
+    const v = $("src").value;
+    if (v === "file") return Quiz.parseQuiz($("qText").value);
+    const a = (index.activities || []).find((x) => x.id === v);
+    return { questions: (a && a.quiz && a.quiz.q) || [], problems: [], title: a ? a.title : "" };
+  }
+  function info() {
+    const p = chosen();
+    $("fileBox").hidden = $("src").value !== "file";
+    if ($("src").value !== "file" && p.title && !$("gTitle").dataset.typed) $("gTitle").value = p.title;
+    $("qInfo").className = p.problems.length ? "err" : "muted";
+    $("qInfo").textContent = p.problems.length ? `${p.problems.length} question(s) need fixing first: ` + p.problems.map((x) => `Q${x.n}: ${x.msg}`).join("; ")
+      : p.questions.length ? `${p.questions.length} question${p.questions.length === 1 ? "" : "s"} ready.` : "";
+  }
+
+  Lecturer.ready("live").then(async (l) => {
+    L = l;
+    $("app").hidden = false;
+    try { index = await L.loadIndex(); } catch { index = { activities: [] }; }
+    const quizzes = (index.activities || []).filter((a) => a.type === "quiz" && a.quiz && a.quiz.q);
+    for (const a of quizzes) $("src").append(el("option", { value: a.id, text: `Quiz activity: ${a.title}` + (a.module ? ` (${a.module})` : "") }));
+    $("src").append(el("option", { value: "file", text: "Upload a quiz file or type questions" }));
+    $("src").onchange = info;
+    $("gTitle").oninput = () => { $("gTitle").dataset.typed = "1"; };
+    $("qText").oninput = info;
+    $("qFile").onchange = async () => {
+      const f = $("qFile").files[0];
+      if (!f) return;
+      say($("qInfo"), "Reading " + f.name + "…");
+      try { $("qText").value = (await Quiz.readQuizFile(f, loaders)).trim(); if (!$("gTitle").value) $("gTitle").value = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "); info(); }
+      catch (e) { say($("qInfo"), "Couldn't read that file: " + (e.message || e.name), "err"); }
+    };
+    info();
+    try { const saved = sessionStorage.getItem("ms-live-pin"); if (saved) { pin = saved; enterStage(); } } catch {}
+  });
+
+  $("setup").onsubmit = (ev) => {
+    ev.preventDefault();
+    Lecturer.busy($("startBtn"), "Opening…", async () => {
+      const p = chosen();
+      if (p.problems.length) return say($("setupMsg"), "Fix the questions listed above first.", "err");
+      if (!p.questions.length) return say($("setupMsg"), "Choose a quiz activity, or add questions.", "err");
+      try {
+        const qs = p.questions.map((q) => ({ t: q.t, text: q.text, options: q.options, blanks: q.blanks, p: q.p, a: q.a }));
+        const r = await (await L.svc("POST", "/admin/live/start", JSON.stringify({ title: $("gTitle").value.trim() || "Live quiz", secs: Number($("secs").value), qs }))).json();
+        pin = r.pin;
+        try { sessionStorage.setItem("ms-live-pin", pin); } catch {}
+        enterStage();
+      } catch (e) {
+        say($("setupMsg"), e.message || e.name, "err");
+      }
+    });
+  };
+
+  // ---------- the stage (projector view)
+  function enterStage() {
+    $("stage").hidden = false;
+    document.body.classList.add("staging");
+    $("sPin").textContent = pin;
+    poll();
+  }
+  function leaveStage() {
+    clearTimeout(timer);
+    try { sessionStorage.removeItem("ms-live-pin"); } catch {}
+    pin = ""; st = null;
+    $("stage").hidden = true;
+    document.body.classList.remove("staging");
+  }
+  async function poll() {
+    clearTimeout(timer);
+    if (!pin) return;
+    try {
+      st = await (await L.svc("GET", `/admin/live/state?pin=${pin}`)).json();
+      render();
+      // close the question automatically when time is up or everyone has answered
+      if (st.phase === "question" && autoRevealed !== st.qi && (st.endsIn <= 0 || (st.players.length && st.answered >= st.players.length))) {
+        autoRevealed = st.qi;
+        await go("reveal");
+        return;
+      }
+    } catch (e) {
+      $("sStatus").textContent = e.status === 404 ? "This game has ended." : "Reconnecting…";
+      if (e.status === 404) { setTimeout(leaveStage, 1500); return; }
+    }
+    timer = setTimeout(poll, st && st.phase === "question" ? 700 : 1200);
+  }
+  async function go(action, extra) {
+    if (busyGo) return;
+    busyGo = true;
+    try { await L.svc("POST", `/admin/live/go?pin=${pin}`, JSON.stringify({ action, ...(extra || {}) })); }
+    catch (e) { $("sStatus").textContent = e.message || e.name; }
+    finally { busyGo = false; }
+    poll();
+  }
+  $("sNext").onclick = () => {
+    if (!st) return;
+    if (st.phase === "question") go("reveal");
+    else if (st.phase === "reveal") go("board");
+    else if (st.phase === "end") leaveStage();
+    else go("next");
+  };
+  $("sEnd").onclick = () => {
+    if (!st) return leaveStage();
+    if (st.phase === "end") return leaveStage();
+    if (confirm("End the game now? Students will see the final scores.")) go("end");
+  };
+  document.addEventListener("keydown", (e) => {
+    if ($("stage").hidden || e.target.closest("input,textarea,select")) return;
+    if (e.key === " " || e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); $("sNext").click(); }
+  });
+  const KIND = { copy: "tried to copy the question", paste: "pasted into the answer", menu: "right-clicked the question", away: "left the game" };
+  $("sFlags").onclick = () => { $("flagPanel").hidden = !$("flagPanel").hidden; renderFlags(); };
+  $("flagClose").onclick = () => { $("flagPanel").hidden = true; };
+  function renderFlags() {
+    const flags = (st && st.flags) || [];
+    const total = flags.reduce((n, f) => n + f.n, 0);
+    $("sFlags").hidden = !total;
+    $("sFlags").textContent = "⚑ " + total;
+    if ($("flagPanel").hidden) return;
+    const box = $("flagList");
+    box.textContent = "";
+    if (!flags.length) { box.append(el("p", { class: "muted", text: "No alerts." })); return; }
+    const t = el("table", { class: "qtable" });
+    t.innerHTML = "<tr><th>Player</th><th>Question</th><th>What happened</th><th>Last at</th></tr>";
+    for (const f of flags) {
+      const tr = document.createElement("tr");
+      tr.append(el("td", { text: f.name }), el("td", { text: "Q" + (f.qi + 1) }),
+        el("td", { text: KIND[f.k] + (f.n > 1 ? ` ${f.n}×` : "") + (f.k === "away" && f.ms ? ` (${Math.round(f.ms / 1000)} s)` : "") }),
+        el("td", { text: new Date(f.t).toLocaleTimeString() }));
+      t.append(tr);
+    }
+    box.append(t);
+  }
+
+  $("sCsv").onclick = async () => {
+    try {
+      const r = await (await L.svc("GET", `/admin/live/results?pin=${pin}`)).json();
+      const esc = (v) => { const t = String(v == null ? "" : v); const safe = /^[=+\-@\t\r]/.test(t) ? "'" + t : t; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+      const head = ["Rank", "Nickname", "Score", "Correct", "Integrity alerts", "Alert details", ...Array.from({ length: r.total }, (_, i) => `Q${i + 1} points`)];
+      const rows = r.players.map((p, k) => {
+        const mine = r.answers.filter((a) => a.pid === p.pid);
+        const fl = (r.flags || []).filter((f) => f.pid === p.pid);
+        const detail = fl.map((f) => `Q${f.qi + 1} ${KIND[f.k]}` + (f.k === "away" && f.ms ? ` ${Math.round(f.ms / 1000)}s` : "")).join("; ");
+        return [k + 1, p.name, p.score, mine.filter((a) => a.ok).length, fl.length, detail, ...Array.from({ length: r.total }, (_, i) => { const a = mine.find((x) => x.qi === i); return a ? a.pts : ""; })];
+      });
+      const csv = [head, ...rows].map((row) => row.map(esc).join(",")).join("\r\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+      a.download = (r.title || "live-quiz").replace(/[^\w -]+/g, "").trim().replace(/\s+/g, "_") + "_results.csv";
+      a.click();
+    } catch (e) { $("sStatus").textContent = e.message || e.name; }
+  };
+
+  function render() {
+    renderFlags();
+    const b = $("sBody");
+    b.textContent = "";
+    $("sTitle").textContent = st.title;
+    $("sProg").textContent = st.qi >= 0 && st.phase !== "end" ? `Question ${st.qi + 1} of ${st.total}` : `${st.total} questions`;
+    $("sCsv").hidden = st.phase !== "end";
+    $("sEnd").textContent = st.phase === "end" ? "Close" : "End game";
+    const n = st.players.length;
+    if (st.phase === "lobby") {
+      $("sNext").textContent = "Start ▶";
+      $("sNext").disabled = !n;
+      $("sStatus").textContent = `${n} player${n === 1 ? "" : "s"} joined`;
+      const join = el("div", { class: "ls-join" },
+        el("p", { class: "ls-step", text: "Go to" }), el("div", { class: "ls-url", text: Lecturer.siteHost + "/play.html" }),
+        el("p", { class: "ls-step", text: "and enter the game PIN" }), el("div", { class: "ls-bigpin", text: pin.slice(0, 3) + " " + pin.slice(3) }));
+      const names = el("div", { class: "ls-names" });
+      for (const p of st.players) names.append(el("button", { class: "ls-name", type: "button", title: "Remove " + p.name, text: p.name, onclick: () => { if (confirm(`Remove ${p.name} from the game?`)) go("kick", { pid: p.pid }); } }));
+      if (!n) names.append(el("p", { class: "muted", text: "Waiting for players… (click a name to remove it)" }));
+      b.append(join, names);
+      return;
+    }
+    $("sNext").disabled = false;
+    if (st.phase === "end") {
+      $("sNext").textContent = "Finish";
+      $("sStatus").textContent = `${n} player${n === 1 ? "" : "s"}`;
+      b.append(el("h2", { class: "ls-q", text: "Final results" }), podium(st.players.slice(0, 3)), boardList(st.players.slice(3, 10), 4));
+      return;
+    }
+    const q = st.question;
+    if (st.phase === "board") {
+      $("sNext").textContent = st.qi + 1 < st.total ? "Next question ▶" : "Final results ▶";
+      $("sStatus").textContent = "Leaderboard";
+      b.append(el("h2", { class: "ls-q", text: "Leaderboard" }), boardList(st.players.slice(0, 5), 1));
+      return;
+    }
+    const reveal = st.phase === "reveal";
+    $("sNext").textContent = reveal ? "Leaderboard ▶" : "Show answers";
+    $("sStatus").textContent = reveal ? `${st.right} of ${st.answered} correct` : `${st.answered} of ${n} answered`;
+    const head = el("div", { class: "ls-qhead" });
+    head.append(el("h2", { class: "ls-q", text: q.t === "blank" ? q.text.replace(/_{3,}/g, "_____") : q.text }));
+    if (!reveal) head.append(el("div", { class: "ls-timer", text: String(Math.ceil(st.endsIn / 1000)) }));
+    b.append(head);
+    if (q.t === "multi" && !reveal) b.append(el("p", { class: "ls-hint", text: "Choose all that apply" }));
+    const total = Math.max(1, st.answered);
+    if (q.options) {
+      const grid = el("div", { class: "ls-opts" });
+      q.options.forEach((o, k) => {
+        const right = q.correct.includes(k);
+        const c = (st.counts && st.counts[k]) || 0;
+        const tile = el("div", { class: "ls-opt c" + (k % 4) + (reveal ? (right ? " right" : " dim") : "") });
+        tile.append(el("span", { class: "ls-shape", text: SHAPES[k] }), el("span", { class: "ls-otext", text: o }));
+        if (reveal) {
+          const bar = el("span", { class: "ls-count", text: `${c}${right ? " ✓" : ""}` });
+          tile.append(bar);
+          tile.style.setProperty("--fill", Math.round((100 * c) / total) + "%");
+        }
+        grid.append(tile);
+      });
+      b.append(grid);
+    } else if (reveal) {
+      b.append(el("p", { class: "ls-answer", text: "Answer: " + q.correct.join("; ") }));
+      const common = Object.entries(st.counts || {}).sort((x, y) => y[1] - x[1]).slice(0, 6);
+      const list = el("div", { class: "ls-names" });
+      for (const [k, v] of common) list.append(el("span", { class: "ls-name", text: `${k} (${v})` }));
+      b.append(list);
+    } else {
+      b.append(el("p", { class: "ls-hint", text: "Type your answer on your phone" }));
+    }
+  }
+  function podium(top) {
+    const box = el("div", { class: "ls-podium" });
+    const order = [1, 0, 2];
+    for (const k of order) {
+      const p = top[k];
+      if (!p) continue;
+      box.append(el("div", { class: "ls-step p" + (k + 1) }, el("div", { class: "ls-pname", text: p.name }), el("div", { class: "ls-pscore", text: p.score + " pts" }), el("div", { class: "ls-block", text: String(k + 1) })));
+    }
+    return box;
+  }
+  function boardList(list, from) {
+    const ol = el("ol", { class: "ls-board", start: String(from) });
+    for (const p of list) ol.append(el("li", {}, el("span", { text: p.name }), el("b", { text: String(p.score) })));
+    return ol;
+  }
+})();
+</script>
+</body>
+</html>
