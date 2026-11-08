@@ -249,8 +249,24 @@ Students then go to `get.yourdomain.com`.
 - The answer key is kept by the submissions service, not in the published quiz, so students can't find it in the page. Each attempt is marked there. Capitals, spaces and a final full stop don't matter; numbers can have a range (`3.14 ± 0.01`).
 - Choose whether students see their score **straight away** or **when you release it**, and whether they see the correct answers.
 - In **Activities & marking** you see each score, every answer, near-misses flagged as "Close: check", and a **Count as correct** tick to accept an answer. **Release all scores** releases everyone's latest attempt. **Question breakdown** shows how many got each question right and the most common wrong answer.
+- **Integrity alerts** (quizzes and live games): copying a question, pasting into an answer, right-clicking a question or leaving the page (another tab or app) shows the student a warning and is recorded against that question. You see a ⚑ count in the submissions table, the details per question when you open an attempt, a column in the question breakdown and the CSV; in a live game a private ⚑ button on the host screen lists who, which question and what. Students are told up front. These are signals, not proof: a second device or a photo of the screen can't be detected.
 - Quizzes are for formative checks: students can retake them (the latest attempt counts) and nothing stops them looking things up.
 - Quizzes need the updated `worker.js` deployed to Cloudflare.
+
+### Live quizzes (Kahoot-style)
+
+- **Live quiz** in the lecturer menu: choose one of your quiz activities (or upload a quiz file in the same format), pick the time per question, and **Open the game**. The projector shows the address, `…/play.html`, and a 6-digit game PIN.
+- Students join on their phones with the PIN and a nickname (they can also type the PIN into the usual code box). Click a name in the lobby to remove it.
+- Each question shows on the projector with a countdown. It closes when time runs out or everyone has answered, then shows how many chose each option. Correct answers score 500–1,000 points, more for answering faster. A leaderboard follows each question, and a podium ends the game. **Download results (CSV)** at the end.
+- Keyboard: Space, Enter or → moves the game on, so you can use a presenter clicker.
+- Needs a free **Cloudflare D1** database bound to the worker as `DB` (Storage & databases → D1 → Create; worker → Settings → Bindings → Add → D1 database, variable name `DB`). The tables are created automatically. Games and nicknames are deleted after a day.
+- Free plan limits: phones check for updates every 1–2 seconds, so a 15-minute game with 40 students uses about 25,000 of the 100,000 worker requests available each day.
+
+### Activity tools
+
+- **Change deadline**: new date and time, no deadline, or late work on/off.
+- **Module**: put an activity into a module week, move it to another module or week, or take it out of the module. Its code, submissions and feedback stay the same.
+- **Answers**: add or replace the private model answer (only you and the AI checker see it), and add answer files for students. Share them now, from a release time (the key is held by the submissions service until then), or not yet. Students open them on the activity page.
 
 ### Worksheets, model answers and AI drafts
 
