@@ -12,6 +12,7 @@
  *              SITE_URL  e.g. https://h-sihan.github.io/Materials-Share
  *              MAX_MB    optional, default 20 (Cloudflare KV limit is 25)
  *              AI_MODEL  optional, default @cf/meta/llama-4-scout-17b-16e-instruct
+ *   D1 binding: DB  optional: live quizzes (Kahoot-style games); tables are created automatically
  *   Secrets:   OPENAI_API_KEY  optional: AI drafts use OpenAI (GPT) instead of Workers AI
  *              OPENAI_MODEL    optional variable, default gpt-5.4-mini
  *
@@ -56,6 +57,7 @@ export default {
       if (path === "/" && m === "GET") return reply("Materials Share submissions service is running.", 200, "text/plain");
       if (path === "/submit" && m === "POST") return await submit(request, env, q, json);
       if (path === "/quiz" && m === "POST") return await quiz(request, env, q, json);
+      if (path.startsWith("/live/")) return await livePublic(path, m, q, request, env, json);
 
       const fb = path.match(/^\/feedback\/([0-9a-f]{32})$/);
       if (fb && m === "GET") {
@@ -302,6 +304,8 @@ async function admin(path, m, q, request, env, reply, json) {
     }
   }
 
+  if (path.startsWith("/admin/live/")) return await liveAdmin(path, m, q, request, env, json);
+
   if (path === "/admin/quiz") {
     const a = hex(q, "a");
     if (m === "PUT") {
@@ -462,4 +466,201 @@ async function openaiDraft(env, model, system, user) {
   const text = (c && c.message && c.message.content) || "";
   if (!text) throw fail(502, c && c.finish_reason === "length" ? "OpenAI ran out of room before finishing. Try again, or use a smaller submission." : "OpenAI sent back an empty reply. Try again.");
   return text;
+}
+
+// ---------- live quizzes (D1). A game lasts a lesson; sessions older than a day are removed.
+let liveReady = false;
+async function liveDb(env) {
+  if (!env.DB) throw fail(501, "Live quizzes need a D1 database: add a D1 binding called DB to the submissions service.");
+  if (!liveReady) {
+    await env.DB.batch([
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS live_sessions (pin TEXT PRIMARY KEY, title TEXT, qs TEXT, phase TEXT, qi INTEGER, opened INTEGER, secs INTEGER, created INTEGER, updated INTEGER)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS live_players (pin TEXT, pid TEXT, name TEXT, score INTEGER DEFAULT 0, streak INTEGER DEFAULT 0, joined INTEGER, PRIMARY KEY (pin, pid))"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS live_answers (pin TEXT, pid TEXT, qi INTEGER, ans TEXT, pts INTEGER, ok INTEGER, ms INTEGER, PRIMARY KEY (pin, pid, qi))"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS live_flags (pin TEXT, pid TEXT, qi INTEGER, k TEXT, ms INTEGER, t INTEGER)"),
+    ]);
+    liveReady = true;
+  }
+  return env.DB;
+}
+const PIN = /^[0-9]{6}$/;
+const pinOf = (v) => { const p = String(v || ""); if (!PIN.test(p)) throw fail(400, "Enter the 6-digit game PIN."); return p; };
+async function bodyJson(request, max) {
+  if (bodyLength(request) > max) throw fail(413, "Too large.");
+  try { return await request.json(); } catch { throw fail(400, "bad request"); }
+}
+async function session(db, pin) {
+  const s = await db.prepare("SELECT * FROM live_sessions WHERE pin = ?").bind(pin).first();
+  if (!s) throw fail(404, "No game with that PIN. Check the number on the screen.");
+  s.q = JSON.parse(s.qs);
+  return s;
+}
+const publicQ = (x) => ({ t: x.t, text: x.text, options: x.options, blanks: x.blanks, p: x.p });
+const correctOf = (x) => (x.t === "blank" ? x.a.map((g) => g[0]) : x.a);
+function liveMark(x, ans) {
+  const r = markQuiz([{ t: x.t, a: x.a, p: 1 }], [ans]).results[0];
+  return r.s; // 0..1
+}
+async function board(db, pin, limit) {
+  return (await db.prepare("SELECT pid, name, score, streak FROM live_players WHERE pin = ? ORDER BY score DESC, joined ASC LIMIT ?").bind(pin, limit).all()).results || [];
+}
+
+async function liveAdmin(path, m, q, request, env, json) {
+  const db = await liveDb(env);
+  const now = Date.now();
+  if (path === "/admin/live/start" && m === "POST") {
+    const b = await bodyJson(request, 262144);
+    const qs = Array.isArray(b.qs) ? b.qs : [];
+    if (!validKey({ q: qs }) || qs.some((x) => typeof x.text !== "string" || x.text.length > 2000 || (x.options && (!Array.isArray(x.options) || x.options.length > 8))))
+      throw fail(400, "That quiz can't be played: check the questions.");
+    const secs = Math.min(240, Math.max(5, Number(b.secs) || 20));
+    const old = now - 86400000;
+    await db.batch([
+      db.prepare("DELETE FROM live_answers WHERE pin IN (SELECT pin FROM live_sessions WHERE created < ?)").bind(old),
+      db.prepare("DELETE FROM live_players WHERE pin IN (SELECT pin FROM live_sessions WHERE created < ?)").bind(old),
+      db.prepare("DELETE FROM live_flags WHERE pin IN (SELECT pin FROM live_sessions WHERE created < ?)").bind(old),
+      db.prepare("DELETE FROM live_sessions WHERE created < ?").bind(old),
+    ]);
+    let pin = "";
+    for (let i = 0; i < 20 && !pin; i++) {
+      const n = crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000;
+      const p = String(n);
+      if (!(await db.prepare("SELECT pin FROM live_sessions WHERE pin = ?").bind(p).first())) pin = p;
+    }
+    if (!pin) throw fail(503, "Couldn't create a game. Try again.");
+    const clean = qs.map((x) => ({ t: x.t, text: x.text, options: x.options, blanks: x.blanks, p: Number(x.p) || 1, a: x.a }));
+    await db.prepare("INSERT INTO live_sessions (pin, title, qs, phase, qi, opened, secs, created, updated) VALUES (?, ?, ?, 'lobby', -1, 0, ?, ?, ?)")
+      .bind(pin, String(b.title || "Live quiz").slice(0, 120), JSON.stringify(clean), secs, now, now).run();
+    return json({ pin });
+  }
+  const pin = pinOf(q.get("pin"));
+  const s = await session(db, pin);
+  if (path === "/admin/live/state" && m === "GET") {
+    const players = await board(db, pin, 500);
+    const flags = (await db.prepare("SELECT f.pid, p.name, f.qi, f.k, COUNT(*) AS n, SUM(f.ms) AS ms, MAX(f.t) AS t FROM live_flags f JOIN live_players p ON p.pin = f.pin AND p.pid = f.pid WHERE f.pin = ? GROUP BY f.pid, f.qi, f.k ORDER BY t DESC LIMIT 200").bind(pin).all()).results || [];
+    const out = { pin, title: s.title, phase: s.phase, qi: s.qi, total: s.q.length, secs: s.secs, endsIn: 0, players, flags };
+    if (s.qi >= 0 && s.qi < s.q.length) {
+      const x = s.q[s.qi];
+      out.question = { ...publicQ(x), correct: correctOf(x) };
+      out.endsIn = Math.max(0, s.opened + s.secs * 1000 - now);
+      const rows = (await db.prepare("SELECT ans, ok FROM live_answers WHERE pin = ? AND qi = ?").bind(pin, s.qi).all()).results || [];
+      out.answered = rows.length;
+      out.right = rows.filter((r) => r.ok).length;
+      const counts = {};
+      for (const r of rows) {
+        let a; try { a = JSON.parse(r.ans); } catch { a = null; }
+        const keys = x.t === "blank" ? [Array.isArray(a) ? a.join(" / ").trim().toLowerCase() || "(blank)" : "(blank)"] : Array.isArray(a) ? a : [a];
+        for (const k of keys) counts[k] = (counts[k] || 0) + 1;
+      }
+      out.counts = counts;
+    }
+    return json(out);
+  }
+  if (path === "/admin/live/go" && m === "POST") {
+    const b = await bodyJson(request, 2048);
+    const a = b.action;
+    if (a === "kick") {
+      const pid = String(b.pid || "");
+      await db.batch([
+        db.prepare("DELETE FROM live_players WHERE pin = ? AND pid = ?").bind(pin, pid),
+        db.prepare("DELETE FROM live_answers WHERE pin = ? AND pid = ?").bind(pin, pid),
+        db.prepare("DELETE FROM live_flags WHERE pin = ? AND pid = ?").bind(pin, pid),
+      ]);
+      return json({ ok: true });
+    }
+    let phase = s.phase, qi = s.qi, opened = s.opened;
+    if (a === "next") {
+      if (qi + 1 < s.q.length) { qi += 1; phase = "question"; opened = now; } else phase = "end";
+    } else if (a === "reveal" && phase === "question") phase = "reveal";
+    else if (a === "board" && (phase === "reveal" || phase === "question")) phase = "board";
+    else if (a === "end") phase = "end";
+    else throw fail(400, "bad action");
+    await db.prepare("UPDATE live_sessions SET phase = ?, qi = ?, opened = ?, updated = ? WHERE pin = ?").bind(phase, qi, opened, now, pin).run();
+    return json({ ok: true, phase, qi });
+  }
+  if (path === "/admin/live/results" && m === "GET") {
+    const players = await board(db, pin, 1000);
+    const rows = (await db.prepare("SELECT pid, qi, ok, pts FROM live_answers WHERE pin = ?").bind(pin).all()).results || [];
+    const flags = (await db.prepare("SELECT pid, qi, k, ms FROM live_flags WHERE pin = ?").bind(pin).all()).results || [];
+    return json({ title: s.title, total: s.q.length, players, answers: rows, flags });
+  }
+  throw fail(404, "not found");
+}
+
+async function livePublic(path, m, q, request, env, json) {
+  const db = await liveDb(env);
+  const now = Date.now();
+  if (path === "/live/join" && m === "POST") {
+    const b = await bodyJson(request, 1024);
+    const pin = pinOf(b.pin);
+    const s = await session(db, pin);
+    if (s.phase === "end") throw fail(410, "This game has finished.");
+    const name = String(b.name || "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 20);
+    if (!name) throw fail(400, "Enter a nickname.");
+    const n = await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ?").bind(pin).first();
+    if (n && n.n >= 300) throw fail(403, "This game is full.");
+    const taken = await db.prepare("SELECT pid FROM live_players WHERE pin = ? AND lower(name) = lower(?)").bind(pin, name).first();
+    if (taken) throw fail(409, "Someone already has that nickname. Try another.");
+    const pid = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join("");
+    await db.prepare("INSERT INTO live_players (pin, pid, name, score, streak, joined) VALUES (?, ?, ?, 0, 0, ?)").bind(pin, pid, name, now).run();
+    return json({ pid, name, title: s.title });
+  }
+  const pin = pinOf(q.get("pin"));
+  const pid = String(q.get("p") || "");
+  if (!/^[0-9a-f]{32}$/.test(pid)) throw fail(400, "bad player");
+  const s = await session(db, pin);
+  const me = await db.prepare("SELECT name, score, streak FROM live_players WHERE pin = ? AND pid = ?").bind(pin, pid).first();
+  if (!me) throw fail(404, "You're no longer in this game. Join again with the PIN.");
+
+  if (path === "/live/state" && m === "GET") {
+    const out = { title: s.title, phase: s.phase, qi: s.qi, total: s.q.length, secs: s.secs, name: me.name, score: me.score, streak: me.streak };
+    if (s.qi >= 0 && s.qi < s.q.length && s.phase !== "lobby") {
+      const x = s.q[s.qi];
+      out.question = publicQ(x);
+      out.endsIn = Math.max(0, s.opened + s.secs * 1000 - now);
+      const mine = await db.prepare("SELECT ok, pts FROM live_answers WHERE pin = ? AND pid = ? AND qi = ?").bind(pin, pid, s.qi).first();
+      out.answered = !!mine;
+      if (s.phase !== "question") {
+        out.result = { ok: mine ? !!mine.ok : false, pts: mine ? mine.pts : 0, answered: !!mine, correct: correctOf(x) };
+      }
+    }
+    if (s.phase === "reveal" || s.phase === "board" || s.phase === "end") {
+      const r = await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ? AND (score > ? )").bind(pin, me.score).first();
+      out.rank = (r ? r.n : 0) + 1;
+      out.players = ((await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ?").bind(pin).first()) || {}).n || 0;
+      if (s.phase !== "reveal") out.top = (await board(db, pin, 5)).map((p) => ({ name: p.name, score: p.score }));
+    }
+    return json(out);
+  }
+  if (path === "/live/flag" && m === "POST") {
+    const b = await bodyJson(request, 512);
+    const k = ["copy", "paste", "menu", "away"].includes(b.k) ? b.k : null;
+    if (!k) throw fail(400, "bad flag");
+    const n = await db.prepare("SELECT COUNT(*) AS n FROM live_flags WHERE pin = ? AND pid = ?").bind(pin, pid).first();
+    if (n && n.n >= 100) return json({ ok: true });
+    const qi = Number.isInteger(b.qi) && b.qi >= 0 && b.qi < s.q.length ? b.qi : s.qi;
+    await db.prepare("INSERT INTO live_flags (pin, pid, qi, k, ms, t) VALUES (?, ?, ?, ?, ?, ?)").bind(pin, pid, qi, k, Math.min(Number(b.ms) || 0, 36e5), now).run();
+    return json({ ok: true });
+  }
+  if (path === "/live/answer" && m === "POST") {
+    const b = await bodyJson(request, 4096);
+    if (s.phase !== "question" || Number(b.qi) !== s.qi) throw fail(409, "Too late: that question has closed.");
+    const elapsed = now - s.opened;
+    if (elapsed > s.secs * 1000 + 1500) throw fail(409, "Too late: time's up for that question.");
+    const x = s.q[s.qi];
+    let ans = b.ans;
+    if (x.t === "mcq") ans = Number.isInteger(ans) ? ans : null;
+    else if (x.t === "multi") ans = Array.isArray(ans) ? ans.filter(Number.isInteger).slice(0, 8) : [];
+    else ans = Array.isArray(ans) ? ans.slice(0, 10).map((v) => String(v || "").slice(0, 200)) : [];
+    const frac = liveMark(x, ans);
+    const speed = Math.max(0, 1 - Math.min(elapsed, s.secs * 1000) / (s.secs * 1000));
+    const pts = frac > 0 ? Math.round(frac * (500 + 500 * speed) * (Number(x.p) || 1)) : 0;
+    const ok = frac === 1 ? 1 : 0;
+    const ins = await db.prepare("INSERT OR IGNORE INTO live_answers (pin, pid, qi, ans, pts, ok, ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(pin, pid, s.qi, JSON.stringify(ans), pts, ok, elapsed).run();
+    if (!ins.meta || !ins.meta.changes) throw fail(409, "You've already answered this one.");
+    await db.prepare("UPDATE live_players SET score = score + ?, streak = CASE WHEN ? = 1 THEN streak + 1 ELSE 0 END WHERE pin = ? AND pid = ?").bind(pts, ok, pin, pid).run();
+    return json({ ok: true });
+  }
+  throw fail(404, "not found");
 }
