@@ -48,6 +48,7 @@
     <span class="ls-pin">PIN <b id="sPin"></b></span>
   </div>
   <div id="sBody" class="ls-body"></div>
+  <div id="flagToast" class="ls-toast" role="status" hidden></div>
   <div id="flagPanel" class="ls-flags" hidden>
     <div class="row" style="align-items:center"><h2 style="margin:0">Integrity alerts</h2><button class="btn ghost small" id="flagClose">Close</button></div>
     <p class="muted">Copying a question, pasting into an answer, right-clicking or leaving the game while a question was open. These are signals, not proof. This panel is on your screen: close it before projecting if you prefer.</p>
@@ -183,7 +184,7 @@
   $("sNext").onclick = () => {
     if (!st) return;
     if (st.phase === "question") go("reveal");
-    else if (st.phase === "reveal") go("board");
+    else if (st.phase === "reveal") go("next");
     else if (st.phase === "end") leaveStage();
     else go("next");
   };
@@ -199,22 +200,40 @@
   const KIND = { copy: "tried to copy the question", paste: "pasted into the answer", menu: "right-clicked the question", away: "left the game" };
   $("sFlags").onclick = () => { $("flagPanel").hidden = !$("flagPanel").hidden; renderFlags(); };
   $("flagClose").onclick = () => { $("flagPanel").hidden = true; };
+  let seenFlags = -1, toastTimer = 0;
   function renderFlags() {
+    if (st && st.flags === undefined) {
+      $("sFlags").hidden = false;
+      $("sFlags").textContent = "⚑ ?";
+      $("sFlags").title = "Integrity alerts need the latest worker.js deployed in Cloudflare (materials-api → Edit code → Deploy).";
+      return;
+    }
     const flags = (st && st.flags) || [];
     const total = flags.reduce((n, f) => n + f.n, 0);
     $("sFlags").hidden = !total;
     $("sFlags").textContent = "⚑ " + total;
+    $("sFlags").title = "Integrity alerts: only shown when you open this panel";
+    if (seenFlags >= 0 && total > seenFlags) {
+      const t = $("flagToast");
+      t.textContent = `⚑ New integrity alert (${total} in total). Click ⚑ ${total} below to see who and when.`;
+      t.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { t.hidden = true; }, 7000);
+    }
+    seenFlags = total;
     if ($("flagPanel").hidden) return;
     const box = $("flagList");
     box.textContent = "";
     if (!flags.length) { box.append(el("p", { class: "muted", text: "No alerts." })); return; }
     const t = el("table", { class: "qtable" });
-    t.innerHTML = "<tr><th>Player</th><th>Question</th><th>What happened</th><th>Last at</th></tr>";
+    t.innerHTML = "<tr><th>Student</th><th>Question</th><th>What happened</th><th>When</th></tr>";
+    const time = (v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     for (const f of flags) {
       const tr = document.createElement("tr");
-      tr.append(el("td", { text: f.name }), el("td", { text: "Q" + (f.qi + 1) }),
+      const who = el("td", {}, el("div", { text: f.name }), el("div", { class: "muted mono", text: f.sid || "" }));
+      tr.append(who, el("td", { text: "Q" + (f.qi + 1) }),
         el("td", { text: KIND[f.k] + (f.n > 1 ? ` ${f.n}×` : "") + (f.k === "away" && f.ms ? ` (${Math.round(f.ms / 1000)} s)` : "") }),
-        el("td", { text: new Date(f.t).toLocaleTimeString() }));
+        el("td", { text: f.n > 1 && f.first !== f.t ? `${time(f.first)}–${time(f.t)}` : time(f.t) }));
       t.append(tr);
     }
     box.append(t);
@@ -224,12 +243,12 @@
     try {
       const r = await (await L.svc("GET", `/admin/live/results?pin=${pin}`)).json();
       const esc = (v) => { const t = String(v == null ? "" : v); const safe = /^[=+\-@\t\r]/.test(t) ? "'" + t : t; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
-      const head = ["Rank", "Nickname", "Score", "Correct", "Integrity alerts", "Alert details", ...Array.from({ length: r.total }, (_, i) => `Q${i + 1} points`)];
+      const head = ["Rank", "Name", "Student number", "Score", "Correct", "Integrity alerts", "Alert details", ...Array.from({ length: r.total }, (_, i) => `Q${i + 1} points`)];
       const rows = r.players.map((p, k) => {
         const mine = r.answers.filter((a) => a.pid === p.pid);
         const fl = (r.flags || []).filter((f) => f.pid === p.pid);
-        const detail = fl.map((f) => `Q${f.qi + 1} ${KIND[f.k]}` + (f.k === "away" && f.ms ? ` ${Math.round(f.ms / 1000)}s` : "")).join("; ");
-        return [k + 1, p.name, p.score, mine.filter((a) => a.ok).length, fl.length, detail, ...Array.from({ length: r.total }, (_, i) => { const a = mine.find((x) => x.qi === i); return a ? a.pts : ""; })];
+        const detail = fl.map((f) => `${new Date(f.t).toLocaleTimeString()} Q${f.qi + 1} ${KIND[f.k]}` + (f.k === "away" && f.ms ? ` ${Math.round(f.ms / 1000)}s` : "")).join("; ");
+        return [k + 1, p.name, p.sid || "", p.score, mine.filter((a) => a.ok).length, fl.length, detail, ...Array.from({ length: r.total }, (_, i) => { const a = mine.find((x) => x.qi === i); return a ? a.pts : ""; })];
       });
       const csv = [head, ...rows].map((row) => row.map(esc).join(",")).join("\r\n");
       const a = document.createElement("a");
@@ -256,16 +275,19 @@
         el("p", { class: "ls-step", text: "Go to" }), el("div", { class: "ls-url", text: Lecturer.siteHost + "/play.html" }),
         el("p", { class: "ls-step", text: "and enter the game PIN" }), el("div", { class: "ls-bigpin", text: pin.slice(0, 3) + " " + pin.slice(3) }));
       const names = el("div", { class: "ls-names" });
-      for (const p of st.players) names.append(el("button", { class: "ls-name", type: "button", title: "Remove " + p.name, text: p.name, onclick: () => { if (confirm(`Remove ${p.name} from the game?`)) go("kick", { pid: p.pid }); } }));
-      if (!n) names.append(el("p", { class: "muted", text: "Waiting for players… (click a name to remove it)" }));
+      for (const p of st.players) names.append(el("button", { class: "ls-name", type: "button", title: `Remove ${p.name} (${p.sid || ""})`, text: p.name, onclick: () => { if (confirm(`Remove ${p.name} from the game?`)) go("kick", { pid: p.pid }); } }));
+      if (!n) names.append(el("p", { class: "muted", text: "Waiting for students… (click a name to remove it)" }));
       b.append(join, names);
       return;
     }
     $("sNext").disabled = false;
     if (st.phase === "end") {
       $("sNext").textContent = "Finish";
-      $("sStatus").textContent = `${n} player${n === 1 ? "" : "s"}`;
-      b.append(el("h2", { class: "ls-q", text: "Final results" }), podium(st.players.slice(0, 3)), boardList(st.players.slice(3, 10), 4));
+      $("sStatus").textContent = `${n} student${n === 1 ? "" : "s"}`;
+      b.append(el("h2", { class: "ls-q", text: "Final results" }), podium(st.players.slice(0, 3)));
+      const full = el("div", { id: "finalTable" });
+      b.append(full);
+      finalTable(full);
       return;
     }
     const q = st.question;
@@ -276,7 +298,7 @@
       return;
     }
     const reveal = st.phase === "reveal";
-    $("sNext").textContent = reveal ? "Leaderboard ▶" : "Show answers";
+    $("sNext").textContent = reveal ? (st.qi + 1 < st.total ? "Next question ▶" : "Final results ▶") : "Show answers";
     $("sStatus").textContent = reveal ? `${st.right} of ${st.answered} correct` : `${st.answered} of ${n} answered`;
     const head = el("div", { class: "ls-qhead" });
     head.append(el("h2", { class: "ls-q", text: q.t === "blank" ? q.text.replace(/_{3,}/g, "_____") : q.text }));
@@ -308,6 +330,27 @@
     } else {
       b.append(el("p", { class: "ls-hint", text: "Type your answer on your phone" }));
     }
+    if (reveal) {
+      b.append(el("h3", { class: "ls-sub", text: "Leaderboard" }), boardList(st.players.slice(0, 5), 1, true));
+    }
+  }
+  let finalCache = null;
+  async function finalTable(box) {
+    try {
+      if (!finalCache || finalCache.pin !== pin) finalCache = { pin, r: await (await L.svc("GET", `/admin/live/results?pin=${pin}`)).json() };
+      const r = finalCache.r;
+      const t = el("table", { class: "qtable ls-final" });
+      t.innerHTML = "<tr><th>#</th><th>Name</th><th>Correct</th><th>Score</th>" + Array.from({ length: r.total }, (_, i) => `<th>Q${i + 1}</th>`).join("") + "</tr>";
+      r.players.forEach((p, k) => {
+        const mine = r.answers.filter((a) => a.pid === p.pid);
+        const tr = document.createElement("tr");
+        tr.append(el("td", { text: String(k + 1) }), el("td", { text: p.name }), el("td", { text: `${mine.filter((a) => a.ok).length} / ${r.total}` }), el("td", { text: String(p.score) }));
+        for (let i = 0; i < r.total; i++) { const a = mine.find((x) => x.qi === i); tr.append(el("td", { class: a ? (a.ok ? "ok" : a.pts ? "" : "err") : "muted", text: a ? String(a.pts) : "–" })); }
+        t.append(tr);
+      });
+      box.textContent = "";
+      box.append(el("h3", { class: "ls-sub", text: "All scores (points per question)" }), t);
+    } catch (e) { box.textContent = e.message || e.name; }
   }
   function podium(top) {
     const box = el("div", { class: "ls-podium" });
@@ -319,9 +362,14 @@
     }
     return box;
   }
-  function boardList(list, from) {
+  function boardList(list, from, gains) {
     const ol = el("ol", { class: "ls-board", start: String(from) });
-    for (const p of list) ol.append(el("li", {}, el("span", { text: p.name }), el("b", { text: String(p.score) })));
+    for (const p of list) {
+      const li = el("li", {}, el("span", { text: p.name }));
+      if (gains) li.append(el("em", { class: "ls-gain" + (p.gain ? "" : " none"), text: p.gain ? "+" + p.gain : "+0" }));
+      li.append(el("b", { text: String(p.score) }));
+      ol.append(li);
+    }
     return ol;
   }
 })();

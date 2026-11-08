@@ -310,10 +310,22 @@
 
   const fmtDate = (iso) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
+  // ---------- student identity: a real name and a student number (B00 + 6 digits unless config.js sets studentIdPattern)
+  const sidPattern = () => (global.SITE && global.SITE.studentIdPattern) || "^B00\\d{6}$";
+  function checkStudent(rawName, rawSid) {
+    const name = String(rawName || "").replace(/\s+/g, " ").trim();
+    const sid = String(rawSid || "").replace(/\s+/g, "").toUpperCase();
+    if (!/^[\p{L}][\p{L}\p{M} '’.\-]{1,39}$/u.test(name) || (name.match(/\p{L}/gu) || []).length < 2)
+      return { name, sid, error: "Enter your real name (letters only, as on your student record)." };
+    if (!new RegExp(sidPattern(), "i").test(sid))
+      return { name, sid, error: "Enter your student number: B00 followed by 6 digits, e.g. B00123456." };
+    return { name, sid, error: "" };
+  }
+
   global.MS = {
     ALPHABET, LEN, ITER, normalise, pretty, valid, newCode, derive, seal, unseal, importAes,
     b64e, b64d, toJSON, fromJSON, text, createLecturerKeys, unlockLecturer, importPub, sealFor, openWith,
     pack, unpack, buildShare, openAny, activityState, sizeText, fmtDate, brand, tiles,
-    randHex, randKey, itemKey, weekOf, currentWeek,
+    randHex, randKey, itemKey, weekOf, currentWeek, checkStudent, sidPattern,
   };
 })(typeof window !== "undefined" ? window : globalThis);

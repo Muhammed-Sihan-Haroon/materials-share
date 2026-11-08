@@ -334,3 +334,10 @@ button.ls-name:hover{border-color:var(--bad);text-decoration:line-through}
 .integ-box p{margin:6px 0 0}
 .ls-flags{position:absolute;right:3vw;top:8vh;bottom:10vh;width:min(560px,90vw);overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);z-index:2}
 #sFlags{color:var(--bad);border-color:var(--bad)}
+.ls-sub{margin:1vh 0 0;font-size:clamp(16px,1.8vw,26px);color:var(--muted)}
+.ls-gain{font-style:normal;font-weight:700;color:var(--ok);font-family:"Atkinson Hyperlegible Mono",ui-monospace,monospace}
+.ls-gain.none{color:var(--muted);font-weight:400}
+.ls-toast{position:absolute;left:50%;transform:translateX(-50%);bottom:11vh;background:var(--card);border:2px solid var(--bad);color:var(--ink);border-radius:10px;padding:10px 16px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:3;max-width:90vw}
+.ls-final{font-size:clamp(13px,1.2vw,18px)}
+.ls-final td.ok{color:var(--ok);font-weight:700}
+.ls-final td.err{color:var(--bad)}
