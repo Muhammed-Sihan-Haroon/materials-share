@@ -28,6 +28,7 @@
         <p class="err" id="err" hidden></p>
         <button class="btn full" id="go">Open</button>
       </form>
+      <p class="muted" style="margin-top:12px">Live quiz in class? <a href="play.html">Join with the game PIN</a></p>
     </div>
     <div class="card narrow" id="myMods" hidden>
       <h2>Your modules</h2>
@@ -72,6 +73,11 @@
         <h2 style="margin-top:20px">Worksheet and files</h2>
         <div class="files" id="aFileList"></div>
       </div>
+      <div id="aAns" hidden>
+        <h2 style="margin-top:20px">Answers</h2>
+        <p class="muted" id="aAnsNote"></p>
+        <div class="files" id="aAnsList"></div>
+      </div>
       <div id="aCrit" hidden>
         <h2 style="margin-top:20px">What your lecturer is looking for</h2>
         <ul class="list-plain" id="aCritList"></ul>
@@ -85,6 +91,7 @@
           <div><label for="sName">Full name</label><input id="sName" maxlength="60" autocomplete="name" required></div>
           <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" required></div>
         </div>
+        <p class="integ" id="qWarn" role="alert" hidden></p>
         <div id="qBox" class="quiz" hidden></div>
         <div id="fileBits">
         <label for="sFiles">Files</label>
@@ -137,6 +144,7 @@
 
 <script src="config.js"></script>
 <script src="shared.js"></script>
+<script src="integrity.js"></script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -214,6 +222,8 @@
 
   // ---------- open any code
   async function load(raw) {
+    const digits = String(raw || "").replace(/[\s-]/g, "");
+    if (/^\d{6}$/.test(digits)) { location.href = "play.html#" + digits; return; } // a live quiz game PIN
     const code = MS.normalise(raw);
     $("err").hidden = true;
     if (!MS.valid(code)) return showErr("Codes are 8 letters and numbers, like ABCD-2345.");
@@ -324,15 +334,29 @@
   // ---------- quiz (questions only: answers stay with the marking service)
   const WORK_HINT = $("subHint").textContent;
   const quizKey = () => "ms-quiz-" + current.id;
+  // integrity signals: copying a question, right-click, pasting, leaving the page (recorded for the lecturer)
+  const integKey = () => "ms-quiz-i-" + current.id;
+  let integ = [];
+  const quizOpen = () => !!(current && current.brief && current.brief.type === "quiz" && !$("activity").hidden && !$("qBox").hidden && !$("subForm").hidden);
+  Integrity.watch({
+    root: $("qBox"), banner: $("qWarn"), active: quizOpen,
+    currentQ: () => { // the question on screen
+      const f = [...$("qBox").querySelectorAll("fieldset[data-q]")].find((x) => x.getBoundingClientRect().bottom > 80);
+      return f ? Number(f.dataset.q) : null;
+    },
+    onEvent: (ev) => { integ.push(ev); store.set(integKey(), integ.slice(-200)); },
+  });
   function setupQuiz(b) {
     const quiz = b.type === "quiz";
+    integ = quiz ? store.get(integKey()) || [] : [];
+    $("qWarn").hidden = true;
     $("subHead").textContent = quiz ? "Answer the quiz" : "Hand in your work";
     $("fileBits").hidden = quiz;
     $("sFiles").required = !quiz;
     $("qBox").hidden = !quiz;
     $("subBtn").textContent = quiz ? "Submit answers" : "Hand in";
     $("subHint").textContent = quiz
-      ? "Your answers are marked automatically. Your name, student number and answers are stored encrypted, and only your lecturer can see who answered what."
+      ? "Your answers are marked automatically. Your name, student number and answers are stored encrypted, and only your lecturer can see who answered what. Copying questions, pasting into answers and leaving this page are recorded for your lecturer."
       : WORK_HINT;
     if (quiz) renderQuestions(b);
   }
@@ -344,6 +368,7 @@
       const fs = document.createElement("fieldset");
       fs.className = "qq";
       fs.dataset.i = i;
+      fs.dataset.q = i;
       const lg = document.createElement("legend");
       lg.textContent = `Question ${i + 1}` + (q.p !== 1 ? ` (${q.p} marks)` : "");
       fs.append(lg);
@@ -416,8 +441,9 @@
       const rd = await MS.derive(receipt, SITE.salt);
       const t = new Date().toISOString();
       const rk = MS.b64e(rd.raw);
-      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note: "", t, rk, rc: receipt, quiz: answers }, []));
-      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: 0, size: 0 })));
+      const log = integ.slice(-200);
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note: "", t, rk, rc: receipt, quiz: answers, integrity: log }, []));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: 0, size: 0, ...(log.length ? { fl: log.length } : {}) })));
       const aj = MS.fromJSON(answers);
       const framed = new Uint8Array(4 + aj.length + body.length);
       new DataView(framed.buffer).setUint32(0, aj.length);
@@ -434,6 +460,8 @@
       list.unshift({ code: receipt, title: current.brief.title, t });
       store.set("ms-receipts", list.slice(0, 30));
       store.del(quizKey());
+      store.del(integKey());
+      integ = [];
       showReceipt(receipt, name, [], t, { ...j, answers });
       $("subForm").reset();
     } catch (e) {
@@ -471,9 +499,42 @@
   }
 
   // ---------- activity
+  async function renderAnswers() {
+    const box = $("aAns");
+    box.hidden = true;
+    const mine = current;
+    let ans = null;
+    try { ans = await mine.answers(); } catch {}
+    if (current !== mine || !ans || !ans.files || !ans.files.length) return;
+    const list = $("aAnsList");
+    list.textContent = "";
+    const locked = ans.lock && ans.lock > Date.now();
+    $("aAnsNote").textContent = locked ? "Your lecturer will release the answers on " + MS.fmtDate(new Date(ans.lock).toISOString()) + "." : "Check your work against these once you've had a go.";
+    if (!locked) {
+      for (const f of ans.files) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const name = document.createElement("span");
+        const sz = document.createElement("span");
+        name.textContent = f.name;
+        sz.className = "sz";
+        sz.textContent = MS.sizeText(f.size) + " ↓";
+        btn.append(name, sz);
+        btn.onclick = async () => {
+          sz.textContent = "Downloading…";
+          try { download(new Blob([await mine.answerFile(ans, f)], { type: f.type }), f.name); sz.textContent = MS.sizeText(f.size) + " ✓"; }
+          catch (e) { sz.textContent = e.until ? "Not open yet" : "Failed, tap to retry"; }
+        };
+        list.append(btn);
+      }
+    }
+    box.hidden = false;
+  }
+
   function renderActivity() {
     const b = current.brief;
     show("activity");
+    renderAnswers();
     document.title = b.title;
     $("aMod").textContent = b.module || "";
     $("aTitle").textContent = b.title;
