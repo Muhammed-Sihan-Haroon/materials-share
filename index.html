@@ -89,7 +89,7 @@
       <form id="subForm">
         <div class="grid">
           <div><label for="sName">Full name</label><input id="sName" maxlength="60" autocomplete="name" required></div>
-          <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" required></div>
+          <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="B00123456" required></div>
         </div>
         <p class="integ" id="qWarn" role="alert" hidden></p>
         <div id="qBox" class="quiz" hidden></div>
@@ -605,8 +605,10 @@
     ev.preventDefault();
     const msg = $("subMsg");
     msg.className = "muted";
-    const name = $("sName").value.trim();
-    const sid = $("sId").value.trim();
+    const who = MS.checkStudent($("sName").value, $("sId").value);
+    if (who.error) { msg.className = "err"; msg.textContent = who.error; return; }
+    const { name, sid } = who;
+    $("sId").value = sid;
     const note = $("sNote").value.trim();
     if (current.brief.type === "quiz") { if (name && sid) await submitQuiz(name, sid); return; }
     const picked = [...$("sFiles").files];

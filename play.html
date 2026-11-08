@@ -18,9 +18,11 @@
     <h1 style="margin-top:0">Join a live quiz</h1>
     <label for="pin">Game PIN</label>
     <input id="pin" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="123 456" class="mono pin-in" required>
-    <label for="nick">Nickname</label>
-    <input id="nick" maxlength="20" autocomplete="nickname" required placeholder="Shown on the leaderboard">
-    <p class="hint">Use a name your class will recognise. Your lecturer can remove names. Copying questions, pasting answers and leaving the game while a question is open are shown to your lecturer.</p>
+    <label for="nick">Your name</label>
+    <input id="nick" maxlength="40" autocomplete="name" required placeholder="First and last name">
+    <label for="sid">Student number</label>
+    <input id="sid" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="B00123456" class="mono">
+    <p class="hint">Your name appears on the leaderboard; your student number is only seen by your lecturer. Copying questions, pasting answers and leaving the game while a question is open are shown to your lecturer.</p>
     <p class="actions" style="margin-top:14px"><button class="btn" id="joinBtn">Join</button></p>
     <p id="joinMsg" class="err" role="alert"></p>
   </form>
@@ -32,6 +34,7 @@
   </section>
 </main>
 <script src="config.js"></script>
+<script src="shared.js"></script>
 <script src="integrity.js"></script>
 <script>
 (() => {
@@ -75,10 +78,12 @@
     ev.preventDefault();
     const p = $("pin").value.replace(/\D/g, "");
     if (p.length !== 6) { $("joinMsg").textContent = "The game PIN has 6 digits."; return; }
+    const who = MS.checkStudent($("nick").value, $("sid").value);
+    if (who.error) { $("joinMsg").textContent = who.error; return; }
     $("joinBtn").disabled = true;
     $("joinMsg").textContent = "";
     try {
-      const r = await api("/live/join", { pin: p, name: $("nick").value });
+      const r = await api("/live/join", { pin: p, name: who.name, sid: who.sid });
       pin = p; pid = r.pid;
       store.set("ms-play", { pin, pid });
       startGame();
@@ -215,7 +220,7 @@
     const corr = q.t === "blank" ? (r.correct || []).join("; ") : (r.correct || []).map((k) => q.options[k]).join("; ");
     if (!r.ok) b.append(h("p", "", "Answer: " + corr));
     b.append(h("p", "muted", `You're #${st.rank} of ${st.players} with ${st.score} points.`));
-    if (st.phase === "board" && st.top) b.append(topList(st.top));
+    if (st.top) { b.append(h("p", "play-prog", "Leaderboard")); b.append(topList(st.top)); }
   }
   function topList(top) {
     const ol = h("ol", "ls-board small");

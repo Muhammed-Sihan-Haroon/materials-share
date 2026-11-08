@@ -13,6 +13,7 @@
  *              MAX_MB    optional, default 20 (Cloudflare KV limit is 25)
  *              AI_MODEL  optional, default @cf/meta/llama-4-scout-17b-16e-instruct
  *   D1 binding: DB  optional: live quizzes (Kahoot-style games); tables are created automatically
+ *              STUDENT_ID_PATTERN  optional variable, default ^B00\d{6}$ (students join live games with name + student number)
  *   Secrets:   OPENAI_API_KEY  optional: AI drafts use OpenAI (GPT) instead of Workers AI
  *              OPENAI_MODEL    optional variable, default gpt-5.4-mini
  *
@@ -479,6 +480,8 @@ async function liveDb(env) {
       env.DB.prepare("CREATE TABLE IF NOT EXISTS live_answers (pin TEXT, pid TEXT, qi INTEGER, ans TEXT, pts INTEGER, ok INTEGER, ms INTEGER, PRIMARY KEY (pin, pid, qi))"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS live_flags (pin TEXT, pid TEXT, qi INTEGER, k TEXT, ms INTEGER, t INTEGER)"),
     ]);
+    // games created before student numbers were added: add the column (fails harmlessly if it exists)
+    try { await env.DB.prepare("ALTER TABLE live_players ADD COLUMN sid TEXT").run(); } catch {}
     liveReady = true;
   }
   return env.DB;
@@ -502,8 +505,9 @@ function liveMark(x, ans) {
   return r.s; // 0..1
 }
 async function board(db, pin, limit) {
-  return (await db.prepare("SELECT pid, name, score, streak FROM live_players WHERE pin = ? ORDER BY score DESC, joined ASC LIMIT ?").bind(pin, limit).all()).results || [];
+  return (await db.prepare("SELECT pid, name, sid, score, streak FROM live_players WHERE pin = ? ORDER BY score DESC, joined ASC LIMIT ?").bind(pin, limit).all()).results || [];
 }
+const NAME_RE = /^[\p{L}][\p{L}\p{M} '’.\-]{1,39}$/u;
 
 async function liveAdmin(path, m, q, request, env, json) {
   const db = await liveDb(env);
@@ -537,13 +541,15 @@ async function liveAdmin(path, m, q, request, env, json) {
   const s = await session(db, pin);
   if (path === "/admin/live/state" && m === "GET") {
     const players = await board(db, pin, 500);
-    const flags = (await db.prepare("SELECT f.pid, p.name, f.qi, f.k, COUNT(*) AS n, SUM(f.ms) AS ms, MAX(f.t) AS t FROM live_flags f JOIN live_players p ON p.pin = f.pin AND p.pid = f.pid WHERE f.pin = ? GROUP BY f.pid, f.qi, f.k ORDER BY t DESC LIMIT 200").bind(pin).all()).results || [];
+    const flags = (await db.prepare("SELECT f.pid, p.name, p.sid, f.qi, f.k, COUNT(*) AS n, SUM(f.ms) AS ms, MIN(f.t) AS first, MAX(f.t) AS t FROM live_flags f JOIN live_players p ON p.pin = f.pin AND p.pid = f.pid WHERE f.pin = ? GROUP BY f.pid, f.qi, f.k ORDER BY t DESC LIMIT 200").bind(pin).all()).results || [];
     const out = { pin, title: s.title, phase: s.phase, qi: s.qi, total: s.q.length, secs: s.secs, endsIn: 0, players, flags };
     if (s.qi >= 0 && s.qi < s.q.length) {
       const x = s.q[s.qi];
       out.question = { ...publicQ(x), correct: correctOf(x) };
       out.endsIn = Math.max(0, s.opened + s.secs * 1000 - now);
-      const rows = (await db.prepare("SELECT ans, ok FROM live_answers WHERE pin = ? AND qi = ?").bind(pin, s.qi).all()).results || [];
+      const rows = (await db.prepare("SELECT pid, ans, ok, pts FROM live_answers WHERE pin = ? AND qi = ?").bind(pin, s.qi).all()).results || [];
+      const gain = new Map(rows.map((r) => [r.pid, r.pts]));
+      for (const p of players) p.gain = gain.get(p.pid) || 0;
       out.answered = rows.length;
       out.right = rows.filter((r) => r.ok).length;
       const counts = {};
@@ -581,7 +587,7 @@ async function liveAdmin(path, m, q, request, env, json) {
   if (path === "/admin/live/results" && m === "GET") {
     const players = await board(db, pin, 1000);
     const rows = (await db.prepare("SELECT pid, qi, ok, pts FROM live_answers WHERE pin = ?").bind(pin).all()).results || [];
-    const flags = (await db.prepare("SELECT pid, qi, k, ms FROM live_flags WHERE pin = ?").bind(pin).all()).results || [];
+    const flags = (await db.prepare("SELECT pid, qi, k, ms, t FROM live_flags WHERE pin = ? ORDER BY t").bind(pin).all()).results || [];
     return json({ title: s.title, total: s.q.length, players, answers: rows, flags });
   }
   throw fail(404, "not found");
@@ -595,14 +601,22 @@ async function livePublic(path, m, q, request, env, json) {
     const pin = pinOf(b.pin);
     const s = await session(db, pin);
     if (s.phase === "end") throw fail(410, "This game has finished.");
-    const name = String(b.name || "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 20);
-    if (!name) throw fail(400, "Enter a nickname.");
+    const name = String(b.name || "").replace(/\s+/g, " ").trim();
+    const sid = String(b.sid || "").replace(/\s+/g, "").toUpperCase();
+    if (!NAME_RE.test(name) || (name.match(/\p{L}/gu) || []).length < 2) throw fail(400, "Enter your real name (letters only, as on your student record).");
+    let sidRe;
+    try { sidRe = new RegExp(env.STUDENT_ID_PATTERN || "^B00\\d{6}$", "i"); } catch { sidRe = /^B00\d{6}$/i; }
+    if (!sidRe.test(sid)) throw fail(400, "Enter your student number: B00 followed by 6 digits, e.g. B00123456.");
+    const same = await db.prepare("SELECT pid, name FROM live_players WHERE pin = ? AND sid = ?").bind(pin, sid).first();
+    if (same) {
+      // the same student rejoining (e.g. after closing the page) gets their place and score back
+      if (same.name.toLowerCase() === name.toLowerCase()) return json({ pid: same.pid, name: same.name, title: s.title, rejoined: true });
+      throw fail(409, "That student number has already joined this game. Ask your lecturer if this is a mistake.");
+    }
     const n = await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ?").bind(pin).first();
     if (n && n.n >= 300) throw fail(403, "This game is full.");
-    const taken = await db.prepare("SELECT pid FROM live_players WHERE pin = ? AND lower(name) = lower(?)").bind(pin, name).first();
-    if (taken) throw fail(409, "Someone already has that nickname. Try another.");
     const pid = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join("");
-    await db.prepare("INSERT INTO live_players (pin, pid, name, score, streak, joined) VALUES (?, ?, ?, 0, 0, ?)").bind(pin, pid, name, now).run();
+    await db.prepare("INSERT INTO live_players (pin, pid, name, sid, score, streak, joined) VALUES (?, ?, ?, ?, 0, 0, ?)").bind(pin, pid, name, sid, now).run();
     return json({ pid, name, title: s.title });
   }
   const pin = pinOf(q.get("pin"));
@@ -628,7 +642,7 @@ async function livePublic(path, m, q, request, env, json) {
       const r = await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ? AND (score > ? )").bind(pin, me.score).first();
       out.rank = (r ? r.n : 0) + 1;
       out.players = ((await db.prepare("SELECT COUNT(*) AS n FROM live_players WHERE pin = ?").bind(pin).first()) || {}).n || 0;
-      if (s.phase !== "reveal") out.top = (await board(db, pin, 5)).map((p) => ({ name: p.name, score: p.score }));
+      out.top = (await board(db, pin, 5)).map((p) => ({ name: p.name, score: p.score }));
     }
     return json(out);
   }
