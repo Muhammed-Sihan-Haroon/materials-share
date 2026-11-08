@@ -66,7 +66,7 @@
 
   // ---------- top bar
   const PAGES = [["dashboard", "dashboard.html", "Dashboard"], ["modules", "modules.html", "Modules"],
-    ["marking", "review.html", "Activities & marking"], ["share", "admin.html", "Quick share"]];
+    ["marking", "review.html", "Activities & marking"], ["live", "live.html", "Live quiz"], ["share", "admin.html", "Quick share"]];
   function topbar(page) {
     const host = $("ltop");
     if (!host) return;

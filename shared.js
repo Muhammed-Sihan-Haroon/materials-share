@@ -236,6 +236,18 @@
       return {
         kind: "activity", id: d.id, meta, brief: toJSON(await bin(`a/${d.id}/m.bin`)),
         file: (fl) => bin(`a/${d.id}/${fl.f}`),
+        // answer files the lecturer has shared (null if none); locked ones open at their release time
+        answers: async () => {
+          const r = await fetch(`${base}a/${d.id}/ans.bin`, { cache: "no-store" }).catch(() => null);
+          if (!r || !r.ok) return null;
+          return toJSON(await unseal(d.key, await r.arrayBuffer()));
+        },
+        answerFile: async (ans, fl) => {
+          const key = await itemKey(ans, svc);
+          const r = await fetch(`${base}a/${d.id}/x/${fl.f}`);
+          if (!r.ok) throw new Error("network " + r.status);
+          return unseal(key, await r.arrayBuffer());
+        },
       };
     }
     if (md && md.ok) {
