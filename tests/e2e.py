@@ -834,6 +834,7 @@ with sync_playwright() as p:
     P1 = page(); P1.set_viewport_size({"width": 390, "height": 800}); P1.goto("http://localhost:8765/")
     P1.fill("#code", gpin); P1.click("#go")
     P1.wait_for_selector("#joinCard", timeout=20000)
+    P1.wait_for_function("document.querySelector('#pin') && document.querySelector('#pin').value.replace(/\\D/g, '').length === 6", timeout=10000)
     check(gpin in P1.url and P1.input_value("#pin").replace(" ", "") == gpin, "game PIN typed in the code box opens the live quiz")
     P1.fill("#nick", "Asha"); P1.fill("#sid", "12345"); P1.click("#joinBtn")
     P1.wait_for_function("document.querySelector('#joinMsg').textContent.includes('B00')", timeout=5000)
