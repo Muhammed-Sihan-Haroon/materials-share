@@ -196,7 +196,10 @@
   }
   function currentWeek(start, count, now = new Date()) {
     if (!start) return null;
-    const w = Math.floor((now - new Date(start + "T00:00:00")) / (7 * 864e5)) + 1;
+    // count calendar days, so the clocks changing (BST/GMT) can't move the week by an hour
+    const s0 = new Date(start + "T00:00:00");
+    const days = Math.round((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(s0.getFullYear(), s0.getMonth(), s0.getDate())) / 864e5);
+    const w = Math.floor(days / 7) + 1;
     return Math.min(Math.max(w, 1), count || 1);
   }
 
