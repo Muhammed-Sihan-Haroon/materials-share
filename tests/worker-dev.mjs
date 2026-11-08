@@ -74,7 +74,23 @@ const AI = {
     return { response: "Here is my assessment:\n```json\n" + JSON.stringify(body) + "\n```" };
   },
 };
-const env = { KV, AI, REPO: "me/materials", SITE_URL: "http://localhost:8765", MAX_MB: "20" };
+// D1 stand-in on Node's built-in SQLite (same SQL dialect as Cloudflare D1)
+const { DatabaseSync } = await import("node:sqlite");
+const sqlite = new DatabaseSync(":memory:");
+function stmt(sql, args = []) {
+  const run = () => sqlite.prepare(sql);
+  return {
+    bind: (...a) => stmt(sql, a),
+    async first(col) { const r = run().get(...args); return r === undefined ? null : col ? r[col] : { ...r }; },
+    async all() { return { results: run().all(...args).map((r) => ({ ...r })) }; },
+    async run() { const r = run().run(...args); return { meta: { changes: Number(r.changes) } }; },
+  };
+}
+const DB = {
+  prepare: (sql) => stmt(sql),
+  async batch(list) { const out = []; for (const x of list) out.push(await x.run()); return out; },
+};
+const env = { KV, AI, DB, REPO: "me/materials", SITE_URL: "http://localhost:8765", MAX_MB: "20" };
 const SKIP = new Set(["host", "connection", "transfer-encoding", "keep-alive"]);
 
 http.createServer(async (req, res) => {
