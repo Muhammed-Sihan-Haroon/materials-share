@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<title>Class Materials</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar"><div class="wrap topbar-in">
+  <a class="brand" href="./"><span class="mark" id="mark" aria-hidden="true"></span><span><b id="site">Class Materials</b><small id="sub" hidden></small></span></a>
+</div></header>
+
+<main class="wrap">
+  <!-- code entry -->
+  <div id="home">
+    <div class="hero">
+      <h1>Enter your code</h1>
+      <p class="lead">Type the code your lecturer gives you. It's 8 letters and numbers, and it works for modules, class materials, activities and feedback receipts.</p>
+      <form id="form">
+        <input class="code-input" id="code" maxlength="12" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" placeholder="ABCD-2345" aria-label="Code" required>
+        <p class="err" id="err" hidden></p>
+        <button class="btn full" id="go">Open</button>
+      </form>
+      <p class="muted" style="margin-top:12px">Live quiz in class? <a href="play.html">Join with the game PIN</a></p>
+    </div>
+    <div class="card narrow" id="myMods" hidden>
+      <h2>Your modules</h2>
+      <div id="myModsList"></div>
+    </div>
+    <div class="card narrow" id="mine" hidden>
+      <h2>Your submissions on this device</h2>
+      <div id="mineList"></div>
+    </div>
+  </div>
+
+  <!-- module -->
+  <div id="module" hidden>
+    <div class="card">
+      <p class="muted" id="mShort" style="margin:0"></p>
+      <h1 id="mTitle"></h1>
+      <p class="muted" id="mMeta" style="margin:0"></p>
+      <input id="mSearch" type="search" placeholder="Search this module" style="margin-top:14px">
+    </div>
+    <div id="mWeeks"></div>
+    <p class="muted"><a href="./">Enter another code</a></p>
+  </div>
+
+  <!-- materials -->
+  <div class="card" id="share" hidden>
+    <p class="muted" id="mod"></p>
+    <h1 id="title"></h1>
+    <p class="muted" id="info"></p>
+    <div class="files" id="files"></div>
+    <button class="btn" id="all" hidden>Download all as a zip</button>
+    <p class="muted" style="margin-top:20px"><a href="./">Enter another code</a></p>
+  </div>
+
+  <!-- activity: brief + submit -->
+  <div id="activity" hidden>
+    <div class="card">
+      <p class="muted" id="aMod"></p>
+      <h1 id="aTitle"></h1>
+      <p class="muted" id="aDue"></p>
+      <div class="brief" id="aBrief"></div>
+      <div id="aFiles" hidden>
+        <h2 style="margin-top:20px">Worksheet and files</h2>
+        <div class="files" id="aFileList"></div>
+      </div>
+      <div id="aAns" hidden>
+        <h2 style="margin-top:20px">Answers</h2>
+        <p class="muted" id="aAnsNote"></p>
+        <div class="files" id="aAnsList"></div>
+      </div>
+      <div id="aCrit" hidden>
+        <h2 style="margin-top:20px">What your lecturer is looking for</h2>
+        <ul class="list-plain" id="aCritList"></ul>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="subHead">Hand in your work</h2>
+      <p class="err" id="aClosed" hidden></p>
+      <form id="subForm">
+        <div class="grid">
+          <div><label for="sName">Full name</label><input id="sName" maxlength="60" autocomplete="name" required></div>
+          <div><label for="sId">Student number</label><input id="sId" maxlength="20" autocomplete="off" required></div>
+        </div>
+        <p class="integ" id="qWarn" role="alert" hidden></p>
+        <div id="qBox" class="quiz" hidden></div>
+        <div id="fileBits">
+        <label for="sFiles">Files</label>
+        <input id="sFiles" type="file" multiple required>
+        <p class="hint" id="sFilesInfo">Up to 20 MB in total.</p>
+        <label for="sNote">Note to your lecturer (optional)</label>
+        <textarea id="sNote" maxlength="1000" style="min-height:70px"></textarea>
+        </div>
+        <p class="hint" id="subHint" style="margin:14px 0 16px">Your work is encrypted on this device before it's sent, and only your lecturer can open it. Your lecturer may use an AI tool to help draft feedback, and checks all feedback before you see it.</p>
+        <button class="btn" id="subBtn">Hand in</button>
+        <div class="bar" id="bar" hidden><span id="barFill"></span></div>
+        <p id="subMsg" class="muted"></p>
+      </form>
+    </div>
+    <p class="muted"><a href="./">Enter another code</a></p>
+  </div>
+
+  <!-- receipt -->
+  <div class="card narrow" id="receipt" hidden>
+    <h1 class="ok">Handed in</h1>
+    <p class="muted" id="rWhat"></p>
+    <div id="rQuiz" hidden></div>
+    <h2 style="margin-top:22px">Your receipt code</h2>
+    <div class="receipt-code" id="rCode"></div>
+    <p class="muted">Enter this code here later to read your feedback. Keep it private, because anyone with it can read your feedback. If you lose it, ask your lecturer.</p>
+    <p class="actions" style="margin-top:16px">
+      <button class="btn ghost" id="rCopy">Copy code</button>
+      <button class="btn ghost" id="rSave">Save receipt</button>
+    </p>
+    <p class="muted" style="margin-top:18px"><a href="./">Done</a></p>
+  </div>
+
+  <!-- feedback -->
+  <div id="feedback" hidden>
+    <div class="card">
+      <p class="muted" id="fMod"></p>
+      <h1 id="fTitle"></h1>
+      <p class="muted" id="fInfo"></p>
+      <div id="fMarkWrap" hidden><div class="mark-big" id="fMark"></div></div>
+      <div id="fCrit" style="margin-top:12px"></div>
+      <div id="fQuiz" hidden></div>
+      <div id="fCommentWrap" hidden>
+        <h2 style="margin-top:22px">Comments</h2>
+        <div class="brief" id="fComment"></div>
+      </div>
+    </div>
+    <p class="muted"><a href="./">Enter another code</a></p>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="integrity.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const base = new URL("./", location.href).href;
+  const SVC = (SITE.submitUrl || "").replace(/\/+$/, "");
+  const MAX_TOTAL = 20 * 1024 * 1024;
+  const STATUS = { met: ["Met", "met"], partly: ["Partly met", "partly"], not: ["Not yet", "not"] };
+  let current = null;
+
+  document.title = SITE.name;
+  MS.brand();
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  function show(id) {
+    for (const v of ["home", "share", "activity", "receipt", "feedback", "module"]) $(v).hidden = v !== id;
+    window.scrollTo(0, 0);
+  }
+
+  function showErr(msg) { $("err").textContent = msg; $("err").hidden = false; }
+
+  // ---------- receipts kept on this device
+  function renderMine() {
+    const list = store.get("ms-receipts") || [];
+    $("mine").hidden = !list.length;
+    const box = $("mineList");
+    box.textContent = "";
+    for (const r of list.slice(0, 10)) {
+      const row = document.createElement("div");
+      row.className = "mine";
+      const left = document.createElement("div");
+      const t = document.createElement("div");
+      t.textContent = r.title;
+      const m = document.createElement("div");
+      m.className = "muted";
+      m.textContent = MS.fmtDate(r.t) + ", receipt " + MS.pretty(r.code);
+      left.append(t, m);
+      const b = document.createElement("button");
+      b.className = "btn ghost small";
+      b.textContent = "Check feedback";
+      b.onclick = () => { $("code").value = MS.pretty(r.code); load(r.code); };
+      row.append(left, b);
+      box.append(row);
+    }
+  }
+
+  // ---------- modules remembered on this device
+  function renderMyMods() {
+    const list = store.get("ms-modules") || [];
+    $("myMods").hidden = !list.length;
+    const box = $("myModsList");
+    box.textContent = "";
+    for (const m of list) {
+      const row = document.createElement("div");
+      row.className = "mine";
+      const left = document.createElement("div");
+      const t = document.createElement("b");
+      t.textContent = m.short;
+      const sub = document.createElement("div");
+      sub.className = "muted";
+      sub.textContent = m.title;
+      left.append(t, sub);
+      const b = document.createElement("button");
+      b.className = "btn small";
+      b.textContent = "Open";
+      b.onclick = () => { $("code").value = MS.pretty(m.code); load(m.code); };
+      row.append(left, b);
+      box.append(row);
+    }
+  }
+
+  // ---------- open any code
+  async function load(raw) {
+    const digits = String(raw || "").replace(/[\s-]/g, "");
+    if (/^\d{6}$/.test(digits)) { location.href = "play.html#" + digits; return; } // a live quiz game PIN
+    const code = MS.normalise(raw);
+    $("err").hidden = true;
+    if (!MS.valid(code)) return showErr("Codes are 8 letters and numbers, like ABCD-2345.");
+    $("go").disabled = true;
+    $("go").textContent = "Unlocking…";
+    try {
+      const r = await MS.openAny(code, SITE.salt, base, SVC);
+      if (r.kind === "none") {
+        return showErr("That code wasn't recognised. A brand-new code can take a couple of minutes to go live. If it's a receipt code, your feedback hasn't been released yet.");
+      }
+      if (r.kind === "share" && r.status === "expired") return showErr("These materials have expired. Ask your lecturer for a new code.");
+      history.replaceState(null, "", "#" + code);
+      current = r;
+      if (r.kind === "share") renderShare();
+      else if (r.kind === "activity") renderActivity();
+      else if (r.kind === "module") renderModule();
+      else renderFeedback(r.feedback);
+    } catch (e) {
+      showErr(e.name === "OperationError" ? "That code couldn't unlock anything." : "Couldn't reach the site. Check your connection and try again.");
+    } finally {
+      $("go").disabled = false;
+      $("go").textContent = "Open";
+    }
+  }
+
+  // ---------- materials
+  function renderShare() {
+    const m = current.manifest;
+    show("share");
+    $("mod").textContent = m.module || "";
+    $("title").textContent = m.title;
+    document.title = m.title;
+    const n = m.files.length;
+    let info = n + " file" + (n === 1 ? "" : "s");
+    if (current.meta.expires) info += ", available until " + MS.fmtDate(current.meta.expires);
+    $("info").textContent = info;
+    const box = $("files");
+    box.textContent = "";
+    for (const f of m.files) {
+      const b = document.createElement("button");
+      const name = document.createElement("span");
+      const sz = document.createElement("span");
+      name.textContent = f.name;
+      sz.className = "sz";
+      sz.textContent = MS.sizeText(f.size) + " ↓";
+      b.append(name, sz);
+      b.onclick = () => saveOne(f, sz);
+      box.append(b);
+    }
+    $("all").hidden = n < 2;
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function saveOne(f, label) {
+    const before = MS.sizeText(f.size);
+    label.textContent = "Downloading…";
+    try {
+      download(new Blob([await current.file(f)], { type: f.type }), f.name);
+      label.textContent = before + " ✓";
+    } catch (e) {
+      label.textContent = "Failed — tap to retry";
+    }
+  }
+
+  function loadZipLib() {
+    if (window.JSZip) return Promise.resolve();
+    return new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.src = "vendor/jszip.min.js";
+      s.onload = ok;
+      s.onerror = fail;
+      document.head.append(s);
+    });
+  }
+
+  $("all").onclick = async () => {
+    const btn = $("all");
+    btn.disabled = true;
+    try {
+      await loadZipLib();
+      const zip = new JSZip();
+      const files = current.manifest.files;
+      for (let i = 0; i < files.length; i++) {
+        btn.textContent = `Downloading ${i + 1} of ${files.length}…`;
+        zip.file(files[i].name, await current.file(files[i]));
+      }
+      btn.textContent = "Zipping…";
+      const blob = await zip.generateAsync({ type: "blob" });
+      download(blob, (current.manifest.title.replace(/[^\w\- ]+/g, "").trim() || "materials") + ".zip");
+      btn.textContent = "Downloaded ✓";
+    } catch (e) {
+      btn.textContent = "Couldn't build the zip — download files one by one";
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // ---------- quiz (questions only: answers stay with the marking service)
+  const WORK_HINT = $("subHint").textContent;
+  const quizKey = () => "ms-quiz-" + current.id;
+  // integrity signals: copying a question, right-click, pasting, leaving the page (recorded for the lecturer)
+  const integKey = () => "ms-quiz-i-" + current.id;
+  let integ = [];
+  const quizOpen = () => !!(current && current.brief && current.brief.type === "quiz" && !$("activity").hidden && !$("qBox").hidden && !$("subForm").hidden);
+  Integrity.watch({
+    root: $("qBox"), banner: $("qWarn"), active: quizOpen,
+    currentQ: () => { // the question on screen
+      const f = [...$("qBox").querySelectorAll("fieldset[data-q]")].find((x) => x.getBoundingClientRect().bottom > 80);
+      return f ? Number(f.dataset.q) : null;
+    },
+    onEvent: (ev) => { integ.push(ev); store.set(integKey(), integ.slice(-200)); },
+  });
+  function setupQuiz(b) {
+    const quiz = b.type === "quiz";
+    integ = quiz ? store.get(integKey()) || [] : [];
+    $("qWarn").hidden = true;
+    $("subHead").textContent = quiz ? "Answer the quiz" : "Hand in your work";
+    $("fileBits").hidden = quiz;
+    $("sFiles").required = !quiz;
+    $("qBox").hidden = !quiz;
+    $("subBtn").textContent = quiz ? "Submit answers" : "Hand in";
+    $("subHint").textContent = quiz
+      ? "Your answers are marked automatically. Your name, student number and answers are stored encrypted, and only your lecturer can see who answered what. Copying questions, pasting into answers and leaving this page are recorded for your lecturer."
+      : WORK_HINT;
+    if (quiz) renderQuestions(b);
+  }
+  function renderQuestions(b) {
+    const box = $("qBox");
+    box.textContent = "";
+    const saved = store.get(quizKey()) || [];
+    b.questions.forEach((q, i) => {
+      const fs = document.createElement("fieldset");
+      fs.className = "qq";
+      fs.dataset.i = i;
+      fs.dataset.q = i;
+      const lg = document.createElement("legend");
+      lg.textContent = `Question ${i + 1}` + (q.p !== 1 ? ` (${q.p} marks)` : "");
+      fs.append(lg);
+      const text = document.createElement("div");
+      text.className = "qtext";
+      const prev = saved[i];
+      if (q.t === "blank") {
+        const parts = q.text.split(/_{3,}/);
+        parts.forEach((part, k) => {
+          text.append(part);
+          if (k < parts.length - 1) {
+            const inp = document.createElement("input");
+            inp.className = "blank";
+            inp.maxLength = 200;
+            inp.autocomplete = "off";
+            inp.setAttribute("autocapitalize", "off");
+            inp.setAttribute("spellcheck", "false");
+            inp.setAttribute("aria-label", `Question ${i + 1}, blank ${k + 1}`);
+            inp.value = (Array.isArray(prev) && prev[k]) || "";
+            text.append(inp);
+          }
+        });
+        fs.append(text);
+      } else {
+        text.textContent = q.text;
+        fs.append(text);
+        if (q.t === "multi") fs.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Choose all that apply." }));
+        q.options.forEach((o, k) => {
+          const l = document.createElement("label");
+          l.className = "opt";
+          const inp = document.createElement("input");
+          inp.type = q.t === "multi" ? "checkbox" : "radio";
+          inp.name = "q" + i;
+          inp.value = k;
+          inp.checked = q.t === "multi" ? Array.isArray(prev) && prev.includes(k) : prev === k;
+          const span = document.createElement("span");
+          span.textContent = o;
+          l.append(inp, span);
+          fs.append(l);
+        });
+      }
+      box.append(fs);
+    });
+    box.oninput = box.onchange = () => store.set(quizKey(), collectAnswers());
+  }
+  function collectAnswers() {
+    return current.brief.questions.map((q, i) => {
+      const fs = $("qBox").querySelector(`fieldset[data-i="${i}"]`);
+      if (q.t === "blank") return [...fs.querySelectorAll("input.blank")].map((x) => x.value.trim().slice(0, 200));
+      const on = [...fs.querySelectorAll("input:checked")].map((x) => Number(x.value));
+      return q.t === "multi" ? on : on.length ? on[0] : null;
+    });
+  }
+  const unanswered = (ans) => ans.filter((a) => a === null || (Array.isArray(a) && (!a.length || a.every((x) => x === "")))).length;
+
+  async function submitQuiz(name, sid) {
+    const msg = $("subMsg");
+    const answers = collectAnswers();
+    const missing = unanswered(answers);
+    if (missing && !confirm(`You haven't answered ${missing} question${missing === 1 ? "" : "s"}. Submit anyway?`)) return;
+    const btn = $("subBtn");
+    btn.disabled = true;
+    msg.className = "muted";
+    try {
+      msg.textContent = "Encrypting…";
+      const kr = await fetch(base + "keys/lecturer.json", { cache: "no-store" });
+      if (!kr.ok) throw new Error("Your lecturer hasn't finished setting up submissions yet.");
+      const pub = await MS.importPub((await kr.json()).pub);
+      const receipt = MS.newCode();
+      const rd = await MS.derive(receipt, SITE.salt);
+      const t = new Date().toISOString();
+      const rk = MS.b64e(rd.raw);
+      const log = integ.slice(-200);
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note: "", t, rk, rc: receipt, quiz: answers, integrity: log }, []));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: 0, size: 0, ...(log.length ? { fl: log.length } : {}) })));
+      const aj = MS.fromJSON(answers);
+      const framed = new Uint8Array(4 + aj.length + body.length);
+      new DataView(framed.buffer).setUint32(0, aj.length);
+      framed.set(aj, 4);
+      framed.set(body, 4 + aj.length);
+      msg.textContent = "Submitting…";
+      let r;
+      try { r = await fetch(`${SVC}/quiz?a=${current.id}&r=${rd.id}`, { method: "POST", headers: { "X-Meta": meta }, body: framed }); }
+      catch { throw new Error("Couldn't reach the marking service. Check your connection and try again."); }
+      let j = {};
+      try { j = await r.json(); } catch {}
+      if (r.status !== 201) throw new Error(j.error || "Couldn't submit (" + r.status + ")");
+      const list = store.get("ms-receipts") || [];
+      list.unshift({ code: receipt, title: current.brief.title, t });
+      store.set("ms-receipts", list.slice(0, 30));
+      store.del(quizKey());
+      store.del(integKey());
+      integ = [];
+      showReceipt(receipt, name, [], t, { ...j, answers });
+      $("subForm").reset();
+    } catch (e) {
+      msg.className = "err";
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function ansText(q, a) {
+    if (q.t === "mcq") return Number.isInteger(a) ? q.options[a] : "";
+    if (q.t === "multi") return Array.isArray(a) ? a.map((k) => q.options[k]).join("; ") : "";
+    return Array.isArray(a) ? a.map((x) => x || "(blank)").join("; ") : "";
+  }
+
+  function quizResultList(rows) {
+    const ol = document.createElement("ol");
+    ol.className = "qres";
+    for (const r of rows) {
+      const li = document.createElement("li");
+      li.className = r.ok ? "right" : r.s > 0 ? "part" : "wrong";
+      const head = document.createElement("div");
+      const mark = document.createElement("b");
+      mark.textContent = r.ok ? "✓ " : r.s > 0 ? "◐ " : "✗ ";
+      head.append(mark, r.q.replace(/_{3,}/g, "____"));
+      li.append(head);
+      const add = (label, v) => { if (v === undefined || v === null || v === "") return; const d = document.createElement("div"); d.className = "muted"; d.textContent = label + v; li.append(d); };
+      add("Your answer: ", r.your || "(no answer)");
+      if (!r.ok) add("Correct answer: ", r.correct);
+      if (r.p !== 1 || (r.s > 0 && !r.ok)) add("", `${r.s} / ${r.p}`);
+      ol.append(li);
+    }
+    return ol;
+  }
+
+  // ---------- activity
+  async function renderAnswers() {
+    const box = $("aAns");
+    box.hidden = true;
+    const mine = current;
+    let ans = null;
+    try { ans = await mine.answers(); } catch {}
+    if (current !== mine || !ans || !ans.files || !ans.files.length) return;
+    const list = $("aAnsList");
+    list.textContent = "";
+    const locked = ans.lock && ans.lock > Date.now();
+    $("aAnsNote").textContent = locked ? "Your lecturer will release the answers on " + MS.fmtDate(new Date(ans.lock).toISOString()) + "." : "Check your work against these once you've had a go.";
+    if (!locked) {
+      for (const f of ans.files) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const name = document.createElement("span");
+        const sz = document.createElement("span");
+        name.textContent = f.name;
+        sz.className = "sz";
+        sz.textContent = MS.sizeText(f.size) + " ↓";
+        btn.append(name, sz);
+        btn.onclick = async () => {
+          sz.textContent = "Downloading…";
+          try { download(new Blob([await mine.answerFile(ans, f)], { type: f.type }), f.name); sz.textContent = MS.sizeText(f.size) + " ✓"; }
+          catch (e) { sz.textContent = e.until ? "Not open yet" : "Failed, tap to retry"; }
+        };
+        list.append(btn);
+      }
+    }
+    box.hidden = false;
+  }
+
+  function renderActivity() {
+    const b = current.brief;
+    show("activity");
+    renderAnswers();
+    document.title = b.title;
+    $("aMod").textContent = b.module || "";
+    $("aTitle").textContent = b.title;
+    $("aBrief").textContent = b.brief || "";
+    $("aCrit").hidden = !(b.criteria && b.criteria.length);
+    const ul = $("aCritList");
+    ul.textContent = "";
+    for (const c of b.criteria || []) {
+      const li = document.createElement("li");
+      li.textContent = c;
+      ul.append(li);
+    }
+    const wl = $("aFileList");
+    wl.textContent = "";
+    for (const f of b.files || []) {
+      const btn = document.createElement("button");
+      const name = document.createElement("span");
+      const sz = document.createElement("span");
+      name.textContent = f.name;
+      sz.className = "sz";
+      sz.textContent = MS.sizeText(f.size) + " ↓";
+      btn.type = "button";
+      btn.append(name, sz);
+      btn.onclick = () => saveOne(f, sz);
+      wl.append(btn);
+    }
+    $("aFiles").hidden = !(b.files && b.files.length);
+    const state = MS.activityState(current.meta);
+    const due = current.meta.deadline ? "Due " + MS.fmtDate(current.meta.deadline) : "No deadline";
+    $("aDue").textContent = state === "late" ? due + ". Late work is still accepted but marked as late." : due;
+    let closed = "";
+    if (!SVC) closed = "Online submission isn't set up for this site yet. Ask your lecturer how to hand in.";
+    else if (state === "closed") closed = "Submissions for this activity are closed.";
+    $("aClosed").textContent = closed;
+    $("aClosed").hidden = !closed;
+    $("subForm").hidden = !!closed;
+    $("subMsg").textContent = "";
+    $("bar").hidden = true;
+    setupQuiz(b);
+  }
+
+  $("sFiles").onchange = () => {
+    const files = [...$("sFiles").files];
+    const total = files.reduce((a, f) => a + f.size, 0);
+    $("sFilesInfo").textContent = files.length
+      ? `${files.length} file${files.length === 1 ? "" : "s"} · ${MS.sizeText(total)}${total > MAX_TOTAL ? " — too large, max 20 MB in total" : ""}`
+      : "Up to 20 MB in total.";
+    $("sFilesInfo").className = total > MAX_TOTAL ? "err" : "muted";
+  };
+
+  function upload(url, body, meta, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", url);
+      x.setRequestHeader("X-Meta", meta);
+      x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+      x.onload = () => {
+        let j = {};
+        try { j = JSON.parse(x.responseText); } catch {}
+        x.status === 201 ? resolve(j) : reject(new Error(j.error || "Upload failed (" + x.status + ")"));
+      };
+      x.onerror = () => reject(new Error("Couldn't reach the submission service. Check your connection and try again."));
+      x.send(new Blob([body]));
+    });
+  }
+
+  $("subForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const msg = $("subMsg");
+    msg.className = "muted";
+    const name = $("sName").value.trim();
+    const sid = $("sId").value.trim();
+    const note = $("sNote").value.trim();
+    if (current.brief.type === "quiz") { if (name && sid) await submitQuiz(name, sid); return; }
+    const picked = [...$("sFiles").files];
+    const total = picked.reduce((a, f) => a + f.size, 0);
+    if (!name || !sid || !picked.length) return;
+    if (total > MAX_TOTAL) { msg.className = "err"; msg.textContent = "Your files add up to more than 20 MB. Remove some or compress them into a smaller zip."; return; }
+
+    const btn = $("subBtn");
+    btn.disabled = true;
+    $("bar").hidden = false;
+    $("barFill").style.width = "0";
+    try {
+      msg.textContent = "Encrypting…";
+      const kr = await fetch(base + "keys/lecturer.json", { cache: "no-store" });
+      if (!kr.ok) throw new Error("Your lecturer hasn't finished setting up submissions yet.");
+      const pub = await MS.importPub((await kr.json()).pub);
+
+      const receipt = MS.newCode();
+      const rd = await MS.derive(receipt, SITE.salt);
+      const t = new Date().toISOString();
+      const rk = MS.b64e(rd.raw);
+      const files = [];
+      for (const f of picked) files.push({ name: f.name, type: f.type, data: new Uint8Array(await f.arrayBuffer()) });
+      const body = await MS.sealFor(pub, MS.pack({ v: 1, name, sid, note, t, rk, rc: receipt }, files));
+      const meta = MS.b64e(await MS.sealFor(pub, MS.fromJSON({ name, sid, t, rk, rc: receipt, n: files.length, size: total })));
+
+      msg.textContent = "Uploading…";
+      await upload(`${SVC}/submit?a=${current.id}&r=${rd.id}`, body, meta, (p) => {
+        $("barFill").style.width = Math.round(p * 100) + "%";
+        msg.textContent = p < 1 ? `Uploading… ${Math.round(p * 100)}%` : "Finishing…";
+      });
+
+      const list = store.get("ms-receipts") || [];
+      list.unshift({ code: receipt, title: current.brief.title, t });
+      store.set("ms-receipts", list.slice(0, 30));
+      showReceipt(receipt, name, files, t);
+      $("subForm").reset();
+      $("sFiles").onchange();
+    } catch (e) {
+      msg.className = "err";
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  function showReceipt(code, name, files, t, res) {
+    show("receipt");
+    MS.tiles($("rCode"), code);
+    const quiz = current.brief.type === "quiz";
+    $("rWhat").textContent = quiz ? `${current.brief.title}: answers submitted on ${MS.fmtDate(t)}.`
+      : `${current.brief.title}: ${files.length} file${files.length === 1 ? "" : "s"} handed in on ${MS.fmtDate(t)}.`;
+    const rq = $("rQuiz");
+    rq.textContent = "";
+    rq.hidden = !quiz;
+    if (quiz) {
+      if (res && res.score !== undefined) {
+        const big = document.createElement("div");
+        big.className = "mark-big";
+        big.textContent = `${res.score} / ${res.outOf}`;
+        rq.append(big);
+        const qs = current.brief.questions;
+        const ans = res.answers || [];
+        const rows = qs.map((q, i) => {
+          const r = res.results[i];
+          const c = res.correct && res.correct[i];
+          const correct = !c ? undefined : q.t === "blank" ? c.join("; ") : c.map((k) => q.options[k]).join("; ");
+          return { q: q.text, your: ansText(q, ans[i]), s: r.s, p: r.p, ok: r.ok, correct };
+        });
+        rq.append(quizResultList(rows));
+      } else {
+        const p = document.createElement("p");
+        p.textContent = "Your lecturer will release your score. Enter your receipt code here later to see it.";
+        rq.append(p);
+      }
+    }
+    $("rCopy").textContent = "Copy code";
+    $("rCopy").onclick = async () => {
+      try { await navigator.clipboard.writeText(MS.pretty(code)); $("rCopy").textContent = "Copied ✓"; } catch { $("rCopy").textContent = MS.pretty(code); }
+    };
+    $("rSave").onclick = () => {
+      const lines = [
+        `${SITE.name} — submission receipt`, "",
+        `Activity: ${[current.brief.module, current.brief.title].filter(Boolean).join(" · ")}`,
+        `Name: ${name}`, `Submitted: ${MS.fmtDate(t)}`,
+        quiz ? "Quiz answers submitted" : `Files: ${files.map((f) => f.name).join(", ")}`, "",
+        `Receipt code: ${MS.pretty(code)}`,
+        `Feedback: ${base}#${code}`, "",
+        "Keep this code private: anyone with it can read your feedback.",
+      ];
+      download(new Blob([lines.join("\n")], { type: "text/plain" }), "receipt-" + code + ".txt");
+    };
+  }
+
+  // ---------- module
+  const KIND = { material: "Material", worksheet: "Worksheet", answer: "Answers", activity: "Activity" };
+  const WEEK = 7 * 864e5;
+  let openWeeks = new Set();
+
+  function isOpenItem(i) { return !i.lock || i.lock <= Date.now(); }
+
+  function renderModule() {
+    const ix = current.index;
+    show("module");
+    document.title = ix.short + " · " + SITE.name;
+    $("mShort").textContent = ix.short;
+    $("mTitle").textContent = ix.title;
+    const list = (store.get("ms-modules") || []).filter((m) => m.code !== current.code);
+    list.unshift({ code: current.code, short: ix.short, title: ix.title });
+    store.set("ms-modules", list.slice(0, 12));
+    const withItems = [...new Set(ix.items.map((i) => i.week))].sort((a, b) => a - b);
+    const cw = MS.currentWeek(ix.start, ix.weeks.length) || withItems[withItems.length - 1] || 1;
+    $("mMeta").textContent = ix.start ? `Week ${cw} of ${ix.weeks.length}` : `${ix.weeks.length} weeks`;
+    openWeeks = new Set([cw]);
+    $("mSearch").value = "";
+    drawWeeks();
+  }
+
+  $("mSearch").oninput = () => drawWeeks();
+
+  function drawWeeks() {
+    const ix = current.index;
+    const q = $("mSearch").value.trim().toLowerCase();
+    const box = $("mWeeks");
+    box.textContent = "";
+    const cw = MS.currentWeek(ix.start, ix.weeks.length);
+    for (const w of ix.weeks) {
+      let items = ix.items.filter((i) => i.week === w.n).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (q) items = items.filter((i) => (i.title + " " + (i.files || []).map((f) => f.name).join(" ") + " " + KIND[i.kind]).toLowerCase().includes(q));
+      if (!items.length) continue;
+      const expanded = q || openWeeks.has(w.n);
+      const fresh = items.some((i) => isOpenItem(i) && Date.now() - Math.max(Date.parse(i.published || 0) || 0, i.lock || 0) < WEEK);
+      const date = MS.weekOf(ix.start, w.n);
+
+      const sec = document.createElement("section");
+      sec.className = "card week" + (w.n === cw ? " now" : "");
+      const head = document.createElement("button");
+      head.type = "button";
+      head.className = "wk-toggle";
+      head.setAttribute("aria-expanded", expanded ? "true" : "false");
+      const t = document.createElement("span");
+      t.className = "wk-n";
+      t.textContent = `Week ${w.n}` + (w.title ? `: ${w.title}` : "");
+      const meta = document.createElement("span");
+      meta.className = "muted";
+      meta.textContent = [date ? "w/c " + date.toLocaleDateString([], { day: "numeric", month: "short" }) : "", `${items.length} item${items.length === 1 ? "" : "s"}`, w.n === cw ? "this week" : ""].filter(Boolean).join(", ");
+      head.append(t, meta);
+      if (fresh) { const c = document.createElement("span"); c.className = "chip new"; c.textContent = "New"; head.append(c); }
+      head.onclick = () => { openWeeks.has(w.n) ? openWeeks.delete(w.n) : openWeeks.add(w.n); drawWeeks(); };
+      sec.append(head);
+
+      if (expanded) {
+        const body = document.createElement("div");
+        body.className = "items";
+        for (const i of items) body.append(studentItem(i));
+        const dl = items.filter((i) => isOpenItem(i) && !i.activity).reduce((n, i) => n + (i.files || []).length, 0);
+        if (dl > 1) {
+          const zb = document.createElement("button");
+          zb.className = "btn ghost small";
+          zb.textContent = "Download this week as a zip";
+          zb.style.marginTop = "10px";
+          zb.onclick = () => zipWeek(w, items, zb);
+          body.append(zb);
+        }
+        sec.append(body);
+      }
+      box.append(sec);
+    }
+    if (!box.children.length) {
+      const e = document.createElement("div");
+      e.className = "card empty";
+      e.textContent = q ? "Nothing in this module matches your search." : "Nothing has been published in this module yet. Check back after your next class.";
+      box.append(e);
+    }
+  }
+
+  function studentItem(i) {
+    const row = document.createElement("div");
+    row.className = "item";
+    const main = document.createElement("div");
+    main.className = "item-main";
+    const top = document.createElement("div");
+    const k = document.createElement("span");
+    k.className = "kind k-" + i.kind;
+    k.textContent = KIND[i.kind] || "Material";
+    const b = document.createElement("b");
+    b.textContent = i.title;
+    top.append(k, " ", b);
+    main.append(top);
+    if (i.note) { const n = document.createElement("div"); n.className = "muted"; n.textContent = i.note; main.append(n); }
+    row.append(main);
+
+    if (i.activity) {
+      const go = document.createElement("button");
+      go.className = "btn small";
+      go.textContent = "Open activity";
+      go.onclick = () => { $("code").value = MS.pretty(i.activity); load(i.activity); };
+      row.append(go);
+    } else if (!isOpenItem(i)) {
+      const lock = document.createElement("span");
+      lock.className = "chip partly";
+      lock.textContent = "Opens " + MS.fmtDate(new Date(i.lock).toISOString());
+      row.append(lock);
+    } else {
+      const files = document.createElement("div");
+      files.className = "files item-files";
+      for (const f of i.files || []) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const name = document.createElement("span");
+        const sz = document.createElement("span");
+        name.textContent = f.name;
+        sz.className = "sz";
+        sz.textContent = MS.sizeText(f.size) + " ↓";
+        btn.append(name, sz);
+        btn.onclick = () => saveModuleFile(i, f, sz);
+        files.append(btn);
+      }
+      main.append(files);
+    }
+    return row;
+  }
+
+  async function saveModuleFile(i, f, label) {
+    const before = MS.sizeText(f.size);
+    label.textContent = "Downloading…";
+    try {
+      download(new Blob([await current.file(i, f)], { type: f.type }), f.name);
+      label.textContent = before + " ✓";
+    } catch (e) {
+      label.textContent = e.until ? "Not open yet" : "Failed, tap to retry";
+    }
+  }
+
+  async function zipWeek(w, items, btn) {
+    btn.disabled = true;
+    try {
+      await loadZipLib();
+      const zip = new JSZip();
+      let n = 0;
+      for (const i of items) {
+        if (!isOpenItem(i) || i.activity) continue;
+        const key = await MS.itemKey(i, SVC);
+        for (const f of i.files || []) {
+          btn.textContent = `Downloading ${++n}…`;
+          zip.file(f.name, await current.file(i, f, key));
+        }
+      }
+      btn.textContent = "Zipping…";
+      download(await zip.generateAsync({ type: "blob" }), `${current.index.short} week ${w.n}.zip`.replace(/[^\w\- .]+/g, ""));
+      btn.textContent = "Downloaded ✓";
+    } catch (e) {
+      btn.textContent = "Couldn't build the zip, download files one by one";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ---------- feedback
+  function renderFeedback(fb) {
+    show("feedback");
+    document.title = "Feedback · " + fb.activity;
+    $("fMod").textContent = fb.module || "";
+    $("fTitle").textContent = fb.activity;
+    $("fInfo").textContent = `Feedback for ${fb.name}, released ${MS.fmtDate(fb.released)}`;
+    const hasMark = fb.mark !== null && fb.mark !== undefined && fb.mark !== "";
+    $("fMarkWrap").hidden = !hasMark;
+    $("fMark").textContent = hasMark ? (fb.outOf ? `${fb.mark} / ${fb.outOf}` : String(fb.mark)) : "";
+    const box = $("fCrit");
+    box.textContent = "";
+    for (const c of fb.criteria || []) {
+      if (!c.s) continue;
+      const row = document.createElement("div");
+      row.className = "fbcrit";
+      const t = document.createElement("span");
+      t.textContent = c.c;
+      const chip = document.createElement("span");
+      const [label, cls] = STATUS[c.s] || ["—", ""];
+      chip.className = "chip " + cls;
+      chip.textContent = label;
+      row.append(t, chip);
+      box.append(row);
+    }
+    $("fQuiz").textContent = "";
+    $("fQuiz").hidden = !fb.quiz;
+    if (fb.quiz) $("fQuiz").append(quizResultList(fb.quiz));
+    $("fCommentWrap").hidden = !fb.comment;
+    $("fComment").textContent = fb.comment || "";
+  }
+
+  $("form").onsubmit = (e) => { e.preventDefault(); load($("code").value); };
+
+  renderMine();
+  renderMyMods();
+  window.addEventListener("hashchange", () => {
+    const h = location.hash.slice(1);
+    if (!h) return location.reload();
+    $("code").value = MS.pretty(MS.normalise(h));
+    show("home");
+    load(h);
+  });
+  if (location.hash.length > 1) {
+    $("code").value = MS.pretty(MS.normalise(location.hash.slice(1)));
+    load(location.hash.slice(1));
+  }
+})();
+</script>
+</body>
+</html>

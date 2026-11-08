@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<title>Live quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="play">
+<main class="wrap narrow">
+  <p class="play-brand"><a href="./">← Class materials</a></p>
+
+  <form class="card" id="joinCard">
+    <h1 style="margin-top:0">Join a live quiz</h1>
+    <label for="pin">Game PIN</label>
+    <input id="pin" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="123 456" class="mono pin-in" required>
+    <label for="nick">Nickname</label>
+    <input id="nick" maxlength="20" autocomplete="nickname" required placeholder="Shown on the leaderboard">
+    <p class="hint">Use a name your class will recognise. Your lecturer can remove names. Copying questions, pasting answers and leaving the game while a question is open are shown to your lecturer.</p>
+    <p class="actions" style="margin-top:14px"><button class="btn" id="joinBtn">Join</button></p>
+    <p id="joinMsg" class="err" role="alert"></p>
+  </form>
+
+  <section id="game" hidden aria-live="polite">
+    <div class="play-top"><span id="gName"></span><span id="gScore" class="mono"></span></div>
+    <p class="integ" id="gWarn" role="alert" hidden></p>
+    <div id="gBody" class="card play-card"></div>
+  </section>
+</main>
+<script src="config.js"></script>
+<script src="integrity.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const SVC = (window.SITE && SITE.submitUrl || "").replace(/\/+$/, "");
+  const SHAPES = ["▲", "◆", "●", "■", "★", "⬟", "⬢", "✚"];
+  let pin = "", pid = "", st = null, timer = 0, sent = null, tick = 0;
+  const store = {
+    get(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { sessionStorage.removeItem(k); } catch {} },
+  };
+  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+  async function api(path, body) {
+    let r;
+    try { r = await fetch(SVC + path, body ? { method: "POST", body: JSON.stringify(body), cache: "no-store" } : { cache: "no-store" }); }
+    catch { const e = new Error("Connection problem: retrying…"); e.net = true; throw e; }
+    let j = {};
+    try { j = await r.json(); } catch {}
+    if (!r.ok) { const e = new Error(j.error || "Something went wrong (" + r.status + ")"); e.status = r.status; throw e; }
+    return j;
+  }
+
+  Integrity.watch({
+    root: $("gBody"), banner: $("gWarn"),
+    active: () => !!(pid && st && st.phase === "question" && !st.answered),
+    currentQ: () => (st ? st.qi : null),
+    onEvent: (ev) => { if (pid) api(`/live/flag?pin=${pin}&p=${pid}`, { qi: Number.isInteger(ev.q) ? ev.q : st.qi, k: ev.k, ms: ev.ms || 0 }).catch(() => {}); },
+  });
+
+  const fromHash = (location.hash.match(/\d{6}/) || [""])[0];
+  if (fromHash) $("pin").value = fromHash.slice(0, 3) + " " + fromHash.slice(3);
+  const saved = store.get("ms-play");
+  if (saved && saved.pin && saved.pid && (!fromHash || fromHash === saved.pin)) { pin = saved.pin; pid = saved.pid; startGame(); }
+  else if (fromHash) $("nick").focus();
+  if (!SVC) $("joinMsg").textContent = "Live quizzes aren't set up on this site yet.";
+
+  $("joinCard").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const p = $("pin").value.replace(/\D/g, "");
+    if (p.length !== 6) { $("joinMsg").textContent = "The game PIN has 6 digits."; return; }
+    $("joinBtn").disabled = true;
+    $("joinMsg").textContent = "";
+    try {
+      const r = await api("/live/join", { pin: p, name: $("nick").value });
+      pin = p; pid = r.pid;
+      store.set("ms-play", { pin, pid });
+      startGame();
+    } catch (e) {
+      $("joinMsg").textContent = e.message;
+    } finally { $("joinBtn").disabled = false; }
+  };
+
+  function startGame() {
+    $("joinCard").hidden = true;
+    $("game").hidden = false;
+    poll();
+  }
+  function leave(msg) {
+    clearTimeout(timer);
+    store.del("ms-play");
+    pin = pid = "";
+    $("game").hidden = true;
+    $("joinCard").hidden = false;
+    $("joinMsg").textContent = msg || "";
+  }
+  async function poll() {
+    clearTimeout(timer);
+    if (!pid) return;
+    try {
+      const s = await api(`/live/state?pin=${pin}&p=${pid}`);
+      const key = s.phase + ":" + s.qi;
+      const changed = !st || key !== st.phase + ":" + st.qi || s.answered !== st.answered;
+      st = s;
+      if (changed) render(); else update();
+    } catch (e) {
+      if (e.status === 404 || e.status === 410) return leave(e.message);
+      if (st) $("gScore").textContent = "Reconnecting…";
+    }
+    timer = setTimeout(poll, st && st.phase === "question" ? 1200 : 2000);
+  }
+
+  function header() {
+    $("gName").textContent = st.name;
+    $("gScore").textContent = st.score + " pts" + (st.streak > 1 ? `  🔥${st.streak}` : "");
+  }
+  function update() {
+    header();
+    const t = $("gTime");
+    if (t && st.phase === "question") t.textContent = String(Math.ceil((st.endsIn || 0) / 1000));
+  }
+
+  function render() {
+    header();
+    const b = $("gBody");
+    b.textContent = "";
+    b.className = "card play-card";
+    b.dataset.q = st.qi >= 0 ? st.qi : "";
+    clearInterval(tick);
+    if (st.phase === "lobby") {
+      b.append(h("h2", "", "You're in!"), h("p", "", "Watch the screen: the quiz starts soon."), h("p", "muted", st.title));
+      return;
+    }
+    if (st.phase === "end") {
+      b.append(h("h2", "", "Game over"), h("p", "play-big", `#${st.rank} of ${st.players}`), h("p", "", `You scored ${st.score} points.`));
+      if (st.top) b.append(topList(st.top));
+      b.append(h("p", "muted", "Well played! Your lecturer has the results."));
+      store.del("ms-play");
+      return;
+    }
+    const q = st.question;
+    const prog = h("p", "play-prog", `Question ${st.qi + 1} of ${st.total}`);
+    if (st.phase === "question") {
+      if (st.answered) {
+        b.append(prog, h("h2", "", "Answer locked in"), h("p", "muted", "Waiting for the others…"));
+        return;
+      }
+      const top = h("div", "play-qhead");
+      top.append(h("p", "play-q", q.t === "blank" ? q.text.replace(/_{3,}/g, "_____") : q.text));
+      const t = h("span", "play-time", String(Math.ceil((st.endsIn || 0) / 1000)));
+      t.id = "gTime";
+      top.append(t);
+      b.append(prog, top);
+      let left = st.endsIn || 0;
+      tick = setInterval(() => { left -= 250; const x = $("gTime"); if (x) x.textContent = String(Math.max(0, Math.ceil(left / 1000))); }, 250);
+      if (q.t === "mcq") {
+        const grid = h("div", "play-opts");
+        q.options.forEach((o, k) => {
+          const btn = h("button", "play-opt c" + (k % 4));
+          btn.type = "button";
+          btn.append(h("span", "ls-shape", SHAPES[k]), h("span", "", o));
+          btn.onclick = () => answer(k);
+          grid.append(btn);
+        });
+        b.append(grid);
+      } else if (q.t === "multi") {
+        b.append(h("p", "hint", "Choose all that apply, then press Submit."));
+        const grid = h("div", "play-opts");
+        const picked = new Set();
+        q.options.forEach((o, k) => {
+          const btn = h("button", "play-opt c" + (k % 4));
+          btn.type = "button";
+          btn.setAttribute("aria-pressed", "false");
+          btn.append(h("span", "ls-shape", SHAPES[k]), h("span", "", o));
+          btn.onclick = () => { picked.has(k) ? picked.delete(k) : picked.add(k); btn.setAttribute("aria-pressed", String(picked.has(k))); };
+          grid.append(btn);
+        });
+        const go = h("button", "btn", "Submit");
+        go.type = "button";
+        go.onclick = () => answer([...picked].sort());
+        b.append(grid, h("p", "actions"));
+        b.lastChild.append(go);
+      } else {
+        const form = h("form", "play-blank");
+        const inputs = [];
+        for (let k = 0; k < (q.blanks || 1); k++) {
+          const inp = h("input", "");
+          inp.maxLength = 200;
+          inp.autocomplete = "off";
+          inp.setAttribute("autocapitalize", "off");
+          inp.setAttribute("aria-label", (q.blanks > 1 ? `Blank ${k + 1}` : "Your answer"));
+          inp.placeholder = q.blanks > 1 ? `Blank ${k + 1}` : "Type your answer";
+          inputs.push(inp);
+          form.append(inp);
+        }
+        const go = h("button", "btn", "Submit");
+        form.append(go);
+        form.onsubmit = (e) => { e.preventDefault(); answer(inputs.map((i) => i.value.trim())); };
+        b.append(form);
+        setTimeout(() => inputs[0].focus(), 50);
+      }
+      return;
+    }
+    // reveal or board
+    const r = st.result || {};
+    b.classList.add(r.ok ? "good" : "bad");
+    b.append(prog, h("h2", "", !r.answered ? "Time's up" : r.ok ? "Correct!" : r.pts ? "Partly right" : "Not this time"));
+    if (r.pts) b.append(h("p", "play-big", "+" + r.pts));
+    const corr = q.t === "blank" ? (r.correct || []).join("; ") : (r.correct || []).map((k) => q.options[k]).join("; ");
+    if (!r.ok) b.append(h("p", "", "Answer: " + corr));
+    b.append(h("p", "muted", `You're #${st.rank} of ${st.players} with ${st.score} points.`));
+    if (st.phase === "board" && st.top) b.append(topList(st.top));
+  }
+  function topList(top) {
+    const ol = h("ol", "ls-board small");
+    for (const p of top) { const li = h("li", ""); li.append(h("span", "", p.name), h("b", "", String(p.score))); ol.append(li); }
+    return ol;
+  }
+  async function answer(ans) {
+    if (sent === st.qi) return;
+    sent = st.qi;
+    clearInterval(tick);
+    try { await api(`/live/answer?pin=${pin}&p=${pid}`, { qi: st.qi, ans }); st.answered = true; }
+    catch (e) { if (e.status !== 409) sent = null; $("gBody").append(h("p", "err", e.message)); }
+    render();
+  }
+})();
+</script>
+</body>
+</html>

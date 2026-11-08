@@ -91,6 +91,8 @@
         <div class="actions">
           <button class="btn ghost small" id="showCode">Show code</button>
           <button class="btn ghost small" id="editDue">Change deadline</button>
+          <button class="btn ghost small" id="editMod">Module</button>
+          <button class="btn ghost small" id="editAns">Answers</button>
           <button class="btn ghost small" id="refresh">Refresh</button>
           <button class="btn small" id="aiAll" hidden>AI draft all new</button>
           <button class="btn ghost small" id="releaseAll">Release all drafts</button>
@@ -147,6 +149,51 @@
   </div>
 </main>
 
+<dialog id="modDlg">
+  <form method="dialog" id="modForm">
+    <h2>Module and week</h2>
+    <p class="muted" id="modFor" style="margin-top:0"></p>
+    <div class="grid">
+      <div><label for="mvMod">Module</label><select id="mvMod"></select></div>
+      <div><label for="mvWeek">Week</label><select id="mvWeek"></select></div>
+    </div>
+    <p class="hint">Students find the activity in that week of the module. Its code, submissions and feedback stay the same.</p>
+    <p class="actions" style="margin-top:16px">
+      <button class="btn" value="save" id="modSave">Save</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </p>
+    <p class="err" id="modMsg"></p>
+  </form>
+</dialog>
+
+<dialog id="ansDlg">
+  <form method="dialog" id="ansForm">
+    <h2>Answers</h2>
+    <p class="muted" id="ansFor" style="margin-top:0"></p>
+    <fieldset class="type-pick">
+      <legend>Model answer or marking notes (only you and the AI checker)</legend>
+      <textarea id="ansNotes" style="min-height:110px" placeholder="Expected answers, common mistakes, what a good answer includes…"></textarea>
+      <label for="ansNotesFile">Add from a file (Word, PDF, text or code)</label>
+      <input id="ansNotesFile" type="file">
+    </fieldset>
+    <fieldset class="type-pick">
+      <legend>Answer files for students</legend>
+      <div id="ansList"></div>
+      <label for="ansFiles">Add files</label>
+      <input id="ansFiles" type="file" multiple>
+      <label class="check"><input type="radio" name="ansVis" value="hidden" checked> Not shared yet</label>
+      <label class="check"><input type="radio" name="ansVis" value="now"> Share with students now</label>
+      <label class="check"><input type="radio" name="ansVis" value="at"> Share from <input id="ansAt" type="datetime-local" style="max-width:240px;margin-left:8px"></label>
+      <p class="hint">Students open them from the activity page with the activity code. Until the release time the files stay locked, even to someone who looks at the site's code.</p>
+    </fieldset>
+    <p class="actions" style="margin-top:16px">
+      <button class="btn" value="save" id="ansSave">Save</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </p>
+    <p class="err" id="ansMsg"></p>
+  </form>
+</dialog>
+
 <dialog id="dueDlg">
   <form method="dialog" id="dueForm">
     <h2>Change deadline</h2>
@@ -167,6 +214,7 @@
 <script src="config.js"></script>
 <script src="shared.js"></script>
 <script src="quiz.js"></script>
+<script src="integrity.js"></script>
 <script src="gh.js"></script>
 <script src="lecturer.js"></script>
 <script>
@@ -507,7 +555,8 @@
     const released = subs.filter((s) => s.draft && s.draft.rel).length;
     const st = MS.activityState(act);
     $("sInfo").textContent = `${subs.length} submission${subs.length === 1 ? "" : "s"}, ${released} released. ` +
-      (act.deadline ? "Due " + MS.fmtDate(act.deadline) + ", " : "") + ({ open: "open", late: "open for late work", closed: "closed" })[st] + ".";
+      (act.deadline ? "Due " + MS.fmtDate(act.deadline) + ", " : "") + ({ open: "open", late: "open for late work", closed: "closed" })[st] + "." +
+      ({ none: "", hidden: " Answers: not shared yet.", shared: " Answers: shared with students.", scheduled: act.answers ? " Answers: open " + MS.fmtDate(act.answers.at) + "." : "" })[ansState(act)];
     const box = $("subs");
     box.textContent = "";
     if (!subs.length) {
@@ -532,6 +581,13 @@
       files.textContent = quiz ? (s.sc !== undefined ? `${s.sc} / ${s.of}` : "—") : `${s.info.n || "?"} · ${MS.sizeText(s.info.size || s.n || 0)}`;
       const status = document.createElement("td");
       status.append(statusChip(s));
+      if (s.info.fl) {
+        const f = document.createElement("span");
+        f.className = "chip not";
+        f.textContent = "⚑ " + s.info.fl;
+        f.title = `${s.info.fl} integrity alert${s.info.fl === 1 ? "" : "s"}: open the attempt to see which questions`;
+        status.append(" ", f);
+      }
       tr.append(name, sid, when, files, status);
       tr.onclick = () => openSub(i);
       t.append(tr);
@@ -559,6 +615,185 @@
     $("toggleClose").textContent = act.closed ? "Reopen submissions" : "Close submissions";
     $("toggleClose").className = act.closed ? "btn ghost small" : "btn danger small";
   });
+
+  // ---------- move an activity into, between or out of modules (only module listings and your list change)
+  function linkOf(a) {
+    for (const m of index.modules || []) {
+      const it = (m.items || []).find((i) => i.activity && i.activity.id === a.id);
+      if (it) return { m, it };
+    }
+    return null;
+  }
+  function fillWeeks(modId, week) {
+    const m = (index.modules || []).find((x) => x.id === modId);
+    const wk = $("mvWeek");
+    wk.textContent = "";
+    wk.disabled = !m;
+    if (!m) return;
+    const want = week || MS.currentWeek(m.start, m.weeks.length) || 1;
+    for (const w of m.weeks) wk.append(Lecturer.el("option", { value: w.n, text: `Week ${w.n}` + (w.title ? `: ${w.title}` : ""), selected: w.n === want }));
+  }
+  $("editMod").onclick = () => busy($("editMod"), "", async () => {
+    if (!act) return;
+    try { index = await loadIndex(); } catch {}
+    const link = linkOf(act);
+    $("modFor").textContent = act.title + (link ? ` is in ${link.m.short}, week ${link.it.week}.` : " is not in a module.");
+    const sel = $("mvMod");
+    sel.textContent = "";
+    sel.append(Lecturer.el("option", { value: "", text: "Not in a module" }));
+    for (const m of index.modules || []) sel.append(Lecturer.el("option", { value: m.id, text: `${m.short}: ${m.title}` }));
+    sel.value = link ? link.m.id : "";
+    fillWeeks(sel.value, link && link.it.week);
+    sel.onchange = () => fillWeeks(sel.value);
+    $("modMsg").textContent = "";
+    if (!(index.modules || []).length) $("modMsg").textContent = "You haven't created any modules yet: add one on the Modules page first.";
+    $("modDlg").showModal();
+  });
+  $("modForm").onsubmit = (ev) => {
+    if (ev.submitter && ev.submitter.value === "cancel") return;
+    ev.preventDefault();
+    busy($("modSave"), "Saving…", async () => {
+      try {
+        index = await loadIndex();
+        const a = index.activities.find((x) => x.id === act.id);
+        if (!a) throw new Error("This activity is no longer in your list. Reload the page.");
+        const target = (index.modules || []).find((x) => x.id === $("mvMod").value) || null;
+        const week = Number($("mvWeek").value) || 1;
+        const link = linkOf(a);
+        if ((link ? link.m.id : "") === (target ? target.id : "") && (!link || link.it.week === week)) { $("modDlg").close(); return; }
+        const changed = new Set();
+        let keep = null;
+        for (const m of index.modules || []) {
+          const before = m.items.length;
+          m.items = m.items.filter((i) => { if (i.activity && i.activity.id === a.id) { keep = keep || i; return false; } return true; });
+          if (m.items.length !== before) changed.add(m);
+        }
+        if (target) {
+          const now = new Date().toISOString();
+          const item = keep ? { ...keep } : { id: MS.randHex(16), kind: "activity", note: "", status: "published", at: null, key: MS.b64e(MS.randKey()), files: [], created: now, published: now };
+          Object.assign(item, { week, title: a.title, activity: { id: a.id, code: a.code, title: a.title }, order: target.items.filter((i) => i.week === week).length });
+          target.items.push(item);
+          changed.add(target);
+          if (!a.module || (link && a.module === link.m.short)) a.module = target.short;
+        }
+        const entries = [];
+        for (const m of changed) entries.push(...(await Lecturer.moduleEntries(m)));
+        await gh.commit([...entries, await indexEntry()], target ? `Move ${a.title} to ${target.short} week ${week}` : `Take ${a.title} out of ${link.m.short}`);
+        act = a;
+        $("modDlg").close();
+        $("sMod").textContent = a.module || "";
+        say($("sMsg"), target ? `Now in ${target.short}, week ${week}. Students see it there within about a minute.` : `Taken out of ${link.m.short}. The activity code still works.`, "ok");
+        renderActs();
+      } catch (e) {
+        say($("modMsg"), e.message || e.name, "err");
+      }
+    });
+  };
+
+  // ---------- answers: private model answer, and answer files for students (own key, released now or later)
+  let ansRemove = new Set();
+  function ansState(a) {
+    const x = a.answers;
+    if (!x || !x.files || !x.files.length) return "none";
+    if (!x.shared) return "hidden";
+    return x.at && Date.parse(x.at) > Date.now() ? "scheduled" : "shared";
+  }
+  function renderAnsList() {
+    const box = $("ansList");
+    box.textContent = "";
+    const files = (act.answers && act.answers.files) || [];
+    if (!files.length) { box.append(Lecturer.el("p", { class: "muted", text: "No answer files yet." })); return; }
+    for (const f of files) {
+      const cb = Lecturer.el("input", { type: "checkbox" });
+      cb.checked = ansRemove.has(f.f);
+      cb.onchange = () => { cb.checked ? ansRemove.add(f.f) : ansRemove.delete(f.f); };
+      box.append(Lecturer.el("label", { class: "check" }, cb, ` Remove ${f.name} (${MS.sizeText(f.size)})`));
+    }
+  }
+  $("editAns").onclick = () => {
+    if (!act) return;
+    ansRemove = new Set();
+    $("ansFor").textContent = act.title;
+    $("ansNotes").value = act.notes || "";
+    $("ansNotesFile").value = "";
+    $("ansFiles").value = "";
+    const x = act.answers || {};
+    const vis = !x.shared ? "hidden" : x.at ? "at" : "now";
+    document.querySelector(`input[name="ansVis"][value="${vis}"]`).checked = true;
+    $("ansAt").value = x.at ? toLocalInput(x.at) : act.deadline ? toLocalInput(act.deadline) : "";
+    $("ansMsg").textContent = "";
+    renderAnsList();
+    $("ansDlg").showModal();
+  };
+  $("ansAt").oninput = () => { document.querySelector('input[name="ansVis"][value="at"]').checked = true; };
+  $("ansForm").onsubmit = (ev) => {
+    if (ev.submitter && ev.submitter.value === "cancel") return;
+    ev.preventDefault();
+    const vis = document.querySelector('input[name="ansVis"]:checked').value;
+    if (vis === "at" && !$("ansAt").value) return say($("ansMsg"), "Choose when students can open the answers.", "err");
+    busy($("ansSave"), "Saving…", async () => {
+      try {
+        const msg = $("ansMsg");
+        index = await loadIndex();
+        const a = index.activities.find((x) => x.id === act.id);
+        if (!a) throw new Error("This activity is no longer in your list. Reload the page.");
+        const entries = [];
+        // private model answer
+        let notes = $("ansNotes").value.trim();
+        const nf = $("ansNotesFile").files[0];
+        if (nf) {
+          say(msg, "Reading " + nf.name + "…");
+          const t = await extractText({ name: nf.name, data: new Uint8Array(await nf.arrayBuffer()) });
+          notes = (notes ? notes + "\n\n" : "") + `[${nf.name}]\n` + t;
+        }
+        a.notes = notes.slice(0, 30000);
+        // student answer files
+        const x = a.answers ? { ...a.answers, files: [...(a.answers.files || [])] } : { id: MS.randHex(16), key: MS.b64e(MS.randKey()), files: [], shared: false, at: null, pub: false };
+        const key = await MS.importAes(MS.b64d(x.key));
+        for (const f of x.files.filter((f) => ansRemove.has(f.f))) entries.push({ path: `a/${a.id}/x/${f.f}`, remove: true });
+        x.files = x.files.filter((f) => !ansRemove.has(f.f));
+        for (const f of $("ansFiles").files) {
+          if (f.size > 50 * 1024 * 1024) throw new Error(`${f.name} is larger than 50 MB.`);
+          say(msg, "Encrypting " + f.name + "…");
+          const data = new Uint8Array(await f.arrayBuffer());
+          const fid = MS.randHex(16) + ".bin";
+          entries.push({ path: `a/${a.id}/x/${fid}`, bytes: await MS.seal(key, data) });
+          x.files.push({ name: f.name, type: f.type || "application/octet-stream", size: data.byteLength, f: fid });
+        }
+        const share = vis !== "hidden" && x.files.length > 0;
+        x.shared = share;
+        x.at = share && vis === "at" ? new Date($("ansAt").value).toISOString() : null;
+        const locked = share && x.at && Date.parse(x.at) > Date.now();
+        if (L.SVC) {
+          if (locked) await svc("PUT", `/admin/key?id=${x.id}&at=${Date.parse(x.at)}`, MS.b64d(x.key));
+          else await svc("DELETE", `/admin/key?id=${x.id}`).catch(() => null);
+        } else if (locked) throw new Error("Scheduled release needs the submissions service. Share now instead, or set it up first.");
+        if (share) {
+          const listing = { v: 1, id: x.id, files: x.files, ...(locked ? { lock: Date.parse(x.at) } : { key: x.key }) };
+          entries.push({ path: `a/${a.id}/ans.bin`, bytes: await MS.seal(await actKey(a), MS.fromJSON(listing)) });
+          x.pub = true;
+        } else if (x.pub) {
+          entries.push({ path: `a/${a.id}/ans.bin`, remove: true });
+          x.pub = false;
+        }
+        a.answers = x.files.length || x.pub ? x : (a.answers ? x : undefined);
+        say(msg, "Saving…");
+        await gh.commit([...entries, await indexEntry()], "Update answers");
+        act = a;
+        $("ansDlg").close();
+        const st = ansState(a);
+        say($("sMsg"), "Answers saved. " + ({ none: "No answer files for students.", hidden: "Answer files are not shared with students yet.", shared: "Students can open the answer files now (within about a minute).", scheduled: "Students can open the answer files from " + MS.fmtDate(a.answers.at) + "." })[st], "ok");
+        renderSubs();
+      } catch (e) {
+        say($("ansMsg"), e.message || e.name, "err");
+      }
+    });
+  };
+  const actKeys = new Map();
+  async function actKey(a) {
+    if (!actKeys.has(a.id)) actKeys.set(a.id, (await MS.derive(a.code, SITE.salt)).key);
+    return actKeys.get(a.id);
+  }
 
   // ---------- change deadline (only the activity's public status file and your list change)
   const toLocalInput = (iso) => iso ? new Date(Date.parse(iso) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
@@ -969,6 +1204,16 @@
     $("rTabs").textContent = "";
     const c = quizCalc(cur.answers, cur.over);
     box.append(Lecturer.el("p", { class: "qscore", text: `Score ${c.score} / ${c.outOf}` }));
+    const log = (cur.pkg.header.integrity || []).filter((e) => e && e.k);
+    if (log.length) {
+      const sm = Integrity.summarise(log);
+      const al = Lecturer.el("div", { class: "integ-box" });
+      al.append(Lecturer.el("b", { text: `⚑ Integrity alerts: ${sm.text}.` }),
+        Lecturer.el("p", { class: "muted", text: "These are signals, not proof: for example a student may switch apps by accident. A second device or a photo of the screen can't be detected." }));
+      const general = log.filter((e) => e.q === null || e.q === undefined);
+      if (general.length) al.append(Lecturer.el("p", { text: "Not linked to a question: " + Integrity.summarise(general).text + "." }));
+      box.append(al);
+    }
     const t = Lecturer.el("table", { class: "qtable" });
     t.innerHTML = "<tr><th>#</th><th>Question</th><th>Answer</th><th>Result</th></tr>";
     for (const r of c.rows) {
@@ -993,6 +1238,11 @@
         lab.append(cb, " Count as correct");
         lab.style.marginTop = "6px";
         tdAcc.append(lab);
+      }
+      const mine = log.filter((e) => e.q === r.n - 1);
+      if (mine.length) {
+        const ms = Integrity.summarise(mine);
+        tdRes.append(Lecturer.el("div", { class: "chip not", style: "margin-top:6px", title: mine.map((e) => new Date(e.t).toLocaleTimeString() + " " + Integrity.KIND[e.k] + (e.ms ? ` (${Math.round(e.ms / 1000)} s)` : "")).join("\n"), text: "⚑ " + ms.text }));
       }
       tr.append(Lecturer.el("td", { text: String(r.n) }), Lecturer.el("td", { class: "qcell", text: r.q }), ans, tdRes);
       t.append(tr);
@@ -1041,11 +1291,13 @@
     if (!use.length) return say(m, "No attempts yet.");
     try {
       const qs = act.quiz.q;
-      const stats = qs.map((q) => ({ right: 0, picks: new Map() }));
+      const stats = qs.map((q) => ({ right: 0, picks: new Map(), flags: new Set(), n: 0 }));
       let n = 0;
       for (const s of use) {
         say(m, `Reading attempt ${++n} of ${use.length}…`);
-        const ans = (await openPkg(s)).header.quiz || [];
+        const hdr = (await openPkg(s)).header;
+        const ans = hdr.quiz || [];
+        for (const e of hdr.integrity || []) if (Number.isInteger(e.q) && stats[e.q]) { stats[e.q].n++; stats[e.q].flags.add(s.r); }
         const c = quizCalc(ans, []);
         c.rows.forEach((r, i) => {
           if (r.ok) stats[i].right++;
@@ -1056,7 +1308,7 @@
       box.textContent = "";
       box.append(Lecturer.el("h3", { text: `Question breakdown (${use.length} student${use.length === 1 ? "" : "s"}, latest attempts)` }));
       const t = Lecturer.el("table", { class: "qtable" });
-      t.innerHTML = "<tr><th>#</th><th>Question</th><th>Got it right</th><th>Most common wrong answer</th></tr>";
+      t.innerHTML = "<tr><th>#</th><th>Question</th><th>Got it right</th><th>Most common wrong answer</th><th>Integrity alerts</th></tr>";
       qs.forEach((q, i) => {
         const pct = Math.round((100 * stats[i].right) / use.length);
         const top = [...stats[i].picks.entries()].sort((x, y) => y[1] - x[1])[0];
@@ -1064,7 +1316,8 @@
         const bar = Lecturer.el("td");
         bar.append(Lecturer.el("span", { class: "chip " + (pct >= 70 ? "met" : pct >= 40 ? "partly" : "not"), text: `${pct}% (${stats[i].right}/${use.length})` }));
         tr.append(Lecturer.el("td", { text: String(i + 1) }), Lecturer.el("td", { class: "qcell", text: q.text }), bar,
-          Lecturer.el("td", { text: top ? `${top[0]} (${top[1]})` : "—" }));
+          Lecturer.el("td", { text: top ? `${top[0]} (${top[1]})` : "—" }),
+          Lecturer.el("td", { text: stats[i].n ? `⚑ ${stats[i].n} (${stats[i].flags.size} student${stats[i].flags.size === 1 ? "" : "s"})` : "—" }));
         t.append(tr);
       });
       box.append(t);
@@ -1280,13 +1533,13 @@
   $("exportCsv").onclick = () => busy($("exportCsv"), "Exporting…", async () => {
     try {
       const quiz = act.type === "quiz";
-      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...(quiz ? ["Auto score"] : []), ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
+      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...(quiz ? ["Auto score", "Integrity alerts"] : []), ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
       const rows = [head];
       for (const s of subs) {
         const d = s.draft ? await getDraft(s) : null;
         rows.push([
           s.info.name, s.info.sid, MS.fmtDate(s.info.t), s.late ? "yes" : "", s.earlier ? "yes" : "",
-          ...(quiz ? [s.sc !== undefined ? s.sc : ""] : []),
+          ...(quiz ? [s.sc !== undefined ? s.sc : "", s.info.fl || 0] : []),
           ...act.criteria.map((_, i) => (d && d.criteria && d.criteria[i] ? LABEL[d.criteria[i]] : "")),
           d ? d.mark : "", act.outOf || "", !d ? "Not started" : d.released ? "Released" : "Draft",
           d && d.releasedAt ? MS.fmtDate(d.releasedAt) : "", d ? d.comment : "",
