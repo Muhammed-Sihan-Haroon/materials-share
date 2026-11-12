@@ -486,6 +486,88 @@ with sync_playwright() as p:
     L.wait_for_function("document.querySelector('#fStatus').textContent.includes('Draft saved')", timeout=20000)
     check(L.is_hidden("#aiBadge") and "AI draft" not in L.locator("#subs tr.click:has-text('Cara Doe')").text_content(), "editing an AI draft marks it reviewed")
 
+    # ===== checks on written work: signs of AI tools, citations and references
+    ess = docx.Document()
+    for para in [
+        "Relational databases remain central to modern systems (Codd, 1970). Normalisation reduces redundancy, as Date (2004) explains. Some authors argue that NoSQL stores trade consistency for scale (Smith, 2019).",
+        "It is important to note that in today's fast-paced world, databases play a crucial role. Furthermore, this delve into the multifaceted landscape underscores the pivotal role of robust design.",
+        "More detail is at https://example.com/article?utm_source=chatgpt.com which explains the idea in depth for anyone who wants to read further.",
+        "References",
+        "Codd, E.F. (1970) 'A relational model of data for large shared data banks', Communications of the ACM, 13(6), pp. 377-387. doi:10.1145/362384.362685",
+        "Date, C.J. (2004) An introduction to database systems. 8th edn. Boston: Addison-Wesley.",
+        "Lee, K. (2022) 'Quantum normal forms for graph stores', Journal of Imaginary Data, 4(2), pp. 1-9. doi:10.9999/fake.2022.01",
+        "Patel, R. (2021) 'Indexing strategies for column stores', Data Letters, 2, pp. 5-8. doi:10.1000/other",
+        "Jones, P. (2021) Quantum databases for beginners. Available at: https://example.test/quantum",
+    ]:
+        ess.add_paragraph(para)
+    ess.save(FD + "/essay.docx")
+    S11 = page(); S11.goto("http://localhost:8765/#" + ai_code)
+    S11.wait_for_selector("#activity:not([hidden])", timeout=20000)
+    S11.fill("#sName", "Dee Rao"); S11.fill("#sId", "B00444444")
+    S11.set_input_files("#sFiles", [FD + "/essay.docx"])
+    S11.click("#subBtn"); S11.wait_for_selector("#receipt:not([hidden])", timeout=30000)
+    S11.close()
+    L.click("#refresh")
+    L.wait_for_function("document.querySelectorAll('#subs tr.click').length === 3", timeout=20000)
+    L.click("#subs tr.click:has-text('Dee Rao')")
+    L.wait_for_selector("#chkBtn:visible", timeout=20000)
+    L.wait_for_function("document.querySelector('#rTabs').textContent.includes('essay.docx')", timeout=20000)
+    L.click("#chkBtn")
+    L.wait_for_function("document.querySelector('#chkBox').textContent.includes('DOI belongs to a different work')", timeout=60000)
+    L.wait_for_function("document.querySelector('#chkBox').textContent.includes('Questions you could ask')", timeout=60000)
+    ck = L.text_content("#chkBox")
+    check("utm_source=chatgpt.com" in ck and "Strong:" in ck, "check spots text copied from ChatGPT")
+    check("Weak:" in ck and "per 1,000 words" in ck, "check lists words chatbots overuse, marked as weak")
+    check("Smith (2019)" in ck and "no matching reference" in ck, "check finds a citation with no reference")
+    check(ck.count("not cited in the text") >= 2 and "never cited" in ck, "check finds references never cited")
+    check("Found (DOI)" in ck and "DOI doesn't exist" in ck and "DOI belongs to a different work" in ck, "references are looked up: real, missing and mismatched DOIs")
+    check("Found" in ck and "Link is dead (404)" in ck and "no date accessed" in ck, "book found by title; dead link and missing access date reported")
+    check("couldn't be found where the student says" in ck, "made-up references are highlighted")
+    check("generic opening" in ck and "How did you choose your sources?" in ck, "AI reader's notes and questions for the student shown")
+    check("not proof" in ck, "checks say they are not proof")
+    L.screenshot(path=SP + "/s-checks.png", full_page=True)
+    check("archived copy exists" in ck and "Archived copy" in ck, "dead link offers an archived copy")
+    # website references
+    web = docx.Document()
+    for para in [
+        "Cyber attacks on public services rose sharply (NCSC, 2023). The BBC reported further incidents (BBC, n.d.). Mozilla (2024) documents the Fetch API, and a tutorial explains hashing (GeeksforGeeks, 2022). Some answers came from Chegg (Chegg, 2023).",
+        "Background reading is at https://example.test/wrong for anyone interested in the wider context of this report.",
+        "Reference list",
+        "National Cyber Security Centre (2023) Annual review 2023. Available at: https://example.test/gone (Accessed: 5 March 2024).",
+        "BBC (n.d.) Hospital IT systems hit by cyber attack. Available at: https://example.test/ (Accessed: 12 January 2025).",
+        "Mozilla (2024) Using the Fetch API. Available at: https://example.test/fetch-api (Accessed: 3 February 2023).",
+        "GeeksforGeeks (2022) What is hashing? Available at: https://www.geeksforgeeks.org/what-is-hashing/",
+        "Chegg (2023) Database normalisation question answer. Available at: https://www.chegg.com/homework-help/q123 (Accessed: 1 December 2099).",
+    ]:
+        web.add_paragraph(para)
+    web.save(FD + "/web_report.docx")
+    S12 = page(); S12.goto("http://localhost:8765/#" + ai_code)
+    S12.wait_for_selector("#activity:not([hidden])", timeout=20000)
+    S12.fill("#sName", "Eli Ward"); S12.fill("#sId", "B00555555")
+    S12.set_input_files("#sFiles", [FD + "/web_report.docx"])
+    S12.click("#subBtn"); S12.wait_for_selector("#receipt:not([hidden])", timeout=30000)
+    S12.close()
+    L.click("#refresh")
+    L.wait_for_function("document.querySelectorAll('#subs tr.click').length === 4", timeout=20000)
+    L.click("#subs tr.click:has-text('Eli Ward')")
+    L.wait_for_function("document.querySelector('#rTabs').textContent.includes('web_report.docx')", timeout=20000)
+    L.click("#chkBtn")
+    L.wait_for_function("document.querySelector('#chkBox').textContent.includes('Web addresses in the text') && !document.querySelector('#chkBox').textContent.includes('Looking up') && !document.querySelector('#chkBox').textContent.includes('checking…')", timeout=60000)
+    wtext = L.text_content("#chkBox")
+    check("no matching reference" not in wtext, "website citations match, including (NCSC, 2023) and (BBC, n.d.)")
+    check("Page found, title matches" in wtext and "Page title: Using the Fetch API" in wtext, "website page opened and its title matches the reference")
+    check("links to a home page" in wtext and "home page instead of the page used" in wtext, "home-page links are flagged")
+    check("Link is dead (404)" in wtext, "dead website link flagged")
+    check("date accessed is before it was published" in wtext and "date accessed is after it was handed in" in wtext, "impossible access dates flagged")
+    check("website with no date accessed" in wtext, "website without access date flagged")
+    check("essay or answer-sharing site" in wtext and "chegg.com" in wtext, "essay/answer-sharing sites flagged")
+    check("tutorial or Q&A site" in wtext, "tutorial sites noted")
+    check("pasted into the text instead of being cited" in wtext and "Page opens, but its title is different" in wtext and "Cookie policy" in wtext, "pasted web addresses are listed and checked")
+    L.screenshot(path=SP + "/s-checks-web.png", full_page=True)
+    L.click("#subs tr.click:has-text('Cara Doe')")
+    L.wait_for_function("!document.querySelector('#aiOne').disabled", timeout=20000)
+    check(L.is_hidden("#chkBox"), "checks clear when another submission opens")
+
     # ===== modules: QHO444, weeks, drafts, publish, schedule, student view
     import datetime as _dt
     today = _dt.date.today()

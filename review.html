@@ -121,7 +121,9 @@
         <p class="actions" style="margin-top:10px" id="dlRow">
           <button class="btn ghost small" id="dlOne">Download this file</button>
           <button class="btn ghost small" id="dlAll">Download all</button>
+          <button class="btn ghost small" id="chkBtn">Check AI use &amp; references</button>
         </p>
+        <section class="chk" id="chkBox" hidden aria-live="polite"></section>
       </div>
       <div class="card sticky">
         <div class="row"><h2>Feedback</h2><button class="btn ghost small" id="aiOne" hidden>Draft with AI</button></div>
@@ -217,6 +219,7 @@
 <script src="shared.js"></script>
 <script src="quiz.js"></script>
 <script src="integrity.js"></script>
+<script src="checks.js"></script>
 <script src="gh.js"></script>
 <script src="lecturer.js"></script>
 <script>
@@ -912,6 +915,8 @@
     $("next").disabled = i === subs.length - 1;
     fillForm(null, true);
     $("rcBox").hidden = true;
+    $("chkBox").hidden = true;
+    $("chkBox").textContent = "";
     $("review").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const blob = await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer();
@@ -1584,6 +1589,145 @@
     renderSubs();
     say(m, `Drafted ${done}${failed ? `, ${failed} failed (open them and use Draft with AI to retry)` : ""}. Open each one to check it, then release.`, failed ? "err" : "ok");
   });
+
+  // ---------- checks on written work: signs of AI tools, citations and references
+  const LOOKUP_CLASS = { found: "ok", "doi-missing": "bad", "doi-mismatch": "bad", close: "warn", "not-found": "warn", "link-ok": "ok", "link-dead": "bad", "link-unsure": "warn", "page-differs": "warn", "bad-url": "bad", skipped: "", error: "" };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+  $("chkBtn").onclick = () => cur && busy($("chkBtn"), "Checking…", async () => {
+    const c = cur;
+    const box = $("chkBox");
+    box.hidden = false;
+    box.textContent = "";
+    box.append(el("p", "muted", "Reading the files…"));
+    const parts = [];
+    for (const f of c.pkg.files) {
+      const t = await extractText(f);
+      if (!/^\[(?:image file|file type|couldn't read)/.test(t)) parts.push(t);
+    }
+    const text = parts.join("\n\n");
+    if (cur !== c) return;
+    if (text.replace(/\s+/g, "").length < 200) { box.textContent = ""; box.append(el("p", "muted", "There isn't enough readable text in this submission to check (images, scans and most code files can't be checked).")); return; }
+    c.checks = { text, refs: Checks.references(text, { submitted: c.s.info.t }), ai: Checks.aiSigns(text), lookups: null, reviewer: null, notes: [] };
+    renderChecks(c);
+    const jobs = [];
+    const R = c.checks.refs;
+    if (L.SVC && (R.refs.length || R.bodyUrls.length)) jobs.push((async () => {
+      // references first, then links pasted in the text; small batches keep each request within Cloudflare's limits
+      const MAXREF = 40, MAXURL = 10;
+      const items = [...R.refs.slice(0, MAXREF).map((r) => ({ doi: r.doi, title: r.title, url: r.url, key: r.key, year: r.year, web: r.web })),
+        ...R.bodyUrls.slice(0, MAXURL).map((u) => ({ url: u, web: true }))];
+      const nRef = Math.min(R.refs.length, MAXREF);
+      const res = [];
+      try {
+        for (let i = 0; i < items.length; i += 8) {
+          const j = await (await svc("POST", "/admin/refcheck", JSON.stringify({ refs: items.slice(i, i + 8) }))).json();
+          res.push(...j.results);
+          c.checks.lookups = res.slice(0, nRef);
+          c.checks.urlLookups = res.slice(nRef);
+          if (cur === c) renderChecks(c);
+        }
+      } catch (e) { c.checks.notes.push("Lookups didn't finish: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); }
+      c.checks.lookups = res.slice(0, nRef);
+      c.checks.urlLookups = res.slice(nRef);
+      c.checks.done = true;
+      if (R.refs.length > MAXREF) c.checks.notes.push(`Looked up the first ${MAXREF} of ${R.refs.length} references.`);
+      if (cur === c) renderChecks(c);
+    })());
+    if (L.SVC && aiOn) jobs.push((async () => {
+      try {
+        const body = JSON.stringify({ activity: { title: act.title, module: act.module, brief: act.brief }, text: text.slice(0, 30000) });
+        c.checks.reviewer = await (await svc("POST", "/admin/aicheck", body)).json();
+      } catch (e) { c.checks.notes.push("AI reader didn't run: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); c.checks.reviewer = false; }
+      if (cur === c) renderChecks(c);
+    })());
+    await Promise.all(jobs);
+  });
+
+  function renderChecks(c) {
+    const k = c.checks, box = $("chkBox");
+    box.textContent = "";
+    const head = el("div", "row");
+    head.append(el("h3", "", "Checks on this work"));
+    const copy = el("button", "btn ghost small", "Copy report");
+    copy.type = "button";
+    copy.onclick = async () => {
+      const txt = Checks.report({ who: `${c.s.info.name} (${c.s.info.sid})`, activity: [act.module, act.title].filter(Boolean).join(" · "), refs: k.refs, ai: k.ai, lookups: k.lookups, urlLookups: k.urlLookups, reviewer: k.reviewer || null });
+      try { await navigator.clipboard.writeText(txt); copy.textContent = "Copied"; } catch { download(new Blob([txt], { type: "text/plain" }), safeName(`${c.s.info.name} checks`) + ".txt"); }
+    };
+    head.append(copy);
+    box.append(head, el("p", "hint", "These are pointers for a conversation with the student, not proof. AI-writing detection is unreliable, so never use it on its own as evidence."));
+
+    // signs of AI tools
+    box.append(el("h4", "", "Signs of AI tools"));
+    const ul = el("ul", "chk-list");
+    for (const x of k.ai.strong) { const li = el("li", "bad"); li.append(el("b", "", "Strong: "), document.createTextNode(x.label + ". "), el("q", "", x.quote)); ul.append(li); }
+    for (const x of k.ai.weak) { const li = el("li", "warn"); li.append(el("b", "", "Weak: "), document.createTextNode(x)); ul.append(li); }
+    if (!ul.children.length) ul.append(el("li", "ok", "Nothing left behind by a chatbot, and no unusual style signals."));
+    box.append(ul);
+    if (k.reviewer === null && aiOn) box.append(el("p", "muted", "AI reader is going through the text… (10–30 seconds)"));
+    else if (k.reviewer) {
+      const r = k.reviewer;
+      const d = el("div", "chk-reader");
+      d.append(el("p", "", "AI reader: " + (r.summary || "no notes.")));
+      if (r.signs.length) { const l = el("ul", "chk-list"); for (const x of r.signs) { const li = el("li", ""); li.append(el("q", "", x.quote), document.createTextNode(" " + x.why)); l.append(li); } d.append(l); }
+      if (r.questions.length) { d.append(el("p", "muted", "Questions you could ask the student:")); const l = el("ol", "chk-q"); for (const q of r.questions) l.append(el("li", "", q)); d.append(l); }
+      box.append(d);
+    }
+
+    // citations and references
+    const R = k.refs;
+    box.append(el("h4", "", "Citations and references"));
+    const styleName = { "author-date": "author-date (e.g. Harvard)", numbered: "numbered (e.g. IEEE)", mixed: "mixed", none: "none found" }[R.style];
+    box.append(el("p", "muted", `${R.cites.length} in-text citation${R.cites.length === 1 ? "" : "s"}, ${R.refs.length} reference${R.refs.length === 1 ? "" : "s"}${R.heading ? ` under "${R.heading}"` : ""}. Citation style: ${styleName}.`));
+    const il = el("ul", "chk-list");
+    for (const x of R.issues) il.append(el("li", "warn", x));
+    if (!R.issues.length && R.refs.length) il.append(el("li", "ok", "Every citation has a reference and every reference is cited."));
+    if (!R.refs.length && !R.cites.length) il.append(el("li", "", "No citations or reference list found."));
+    box.append(il);
+    if (R.refs.length) {
+      const wrap = el("div", "chk-table");
+      const t = el("table", "");
+      const hr = el("tr", "");
+      for (const h of ["#", "Reference", "Lookup"]) hr.append(el("th", "", h));
+      t.append(hr);
+      R.refs.forEach((r, i) => {
+        const tr = el("tr", "");
+        const lk = k.lookups ? k.lookups[i] : undefined;
+        const rt = el("td", "", r.text.length > 260 ? r.text.slice(0, 260) + "…" : r.text);
+        if (r.problems.length) rt.append(el("div", "chk-note", r.problems.join("; ")));
+        tr.append(el("td", "mono", String(i + 1)), rt);
+        const td = el("td", "");
+        if (lk === undefined) td.append(el("span", "muted", k.done ? "Not looked up" : "Looking up…"));
+        else {
+          td.append(el("span", "chip " + (LOOKUP_CLASS[lk.status] || ""), lk.label));
+          if (lk.match && lk.status !== "found") td.append(el("div", "muted small", (/^(link|page)/.test(lk.status) ? "Page title: " : "Closest: ") + lk.match));
+          if (lk.archive) { const a = el("a", "small", "Archived copy"); a.href = lk.archive; a.target = "_blank"; a.rel = "noopener"; td.append(el("div", "")); td.lastChild.append(a); }
+          if (lk.doi) { const a = el("a", "small", "doi.org/" + lk.doi); a.href = "https://doi.org/" + lk.doi; a.target = "_blank"; a.rel = "noopener"; td.append(el("div", "")); td.lastChild.append(a); }
+        }
+        tr.append(td);
+        t.append(tr);
+      });
+      wrap.append(t);
+      box.append(wrap);
+      const bad = (k.lookups || []).filter((x) => x && /^(doi-missing|doi-mismatch|link-dead|page-differs)$/.test(x.status)).length;
+      if (bad) box.append(el("p", "err", `${bad} reference${bad === 1 ? "" : "s"} couldn't be found where the student says. Made-up references are one of the clearest signs of AI-written work, so check these by hand.`));
+    }
+    if (R.bodyUrls.length) {
+      box.append(el("h4", "", "Web addresses in the text"));
+      const ul2 = el("ul", "chk-list");
+      R.bodyUrls.slice(0, 10).forEach((u, i) => {
+        const lk = k.urlLookups && k.urlLookups[i];
+        const li = el("li", lk ? LOOKUP_CLASS[lk.status] || "" : "");
+        li.append(el("span", "mono small", u), document.createTextNode(" "));
+        li.append(lk ? el("span", "chip " + (LOOKUP_CLASS[lk.status] || ""), lk.label) : el("span", "muted small", k.done ? "" : "checking…"));
+        if (lk && lk.match) li.append(el("div", "muted small", "Page title: " + lk.match));
+        ul2.append(li);
+      });
+      box.append(ul2);
+    }
+    for (const n of k.notes) box.append(el("p", "muted", n));
+  }
 
   // ---------- CSV
   const cell = (v) => {

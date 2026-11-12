@@ -342,3 +342,24 @@ button.ls-name:hover{border-color:var(--bad);text-decoration:line-through}
 .ls-final{font-size:clamp(13px,1.2vw,18px)}
 .ls-final td.ok{color:var(--ok);font-weight:700}
 .ls-final td.err{color:var(--bad)}
+/* checks on written work */
+.chk{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.chk .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chk h3{margin:0;font-size:1.05rem}
+.chk h4{margin:14px 0 6px;font-size:.95rem}
+.chk-list{margin:4px 0;padding-left:20px;line-height:1.5}
+.chk-list li{margin:4px 0}
+.chk-list li.bad::marker{color:var(--bad)} .chk-list li.warn::marker{color:var(--warn)} .chk-list li.ok::marker{color:var(--ok)}
+.chk q{font-style:italic;color:var(--muted)}
+.chk-reader{background:var(--sunken);border-radius:var(--r-sm);padding:8px 12px;margin:8px 0}
+.chk-reader p{margin:4px 0}
+.chk-q{margin:4px 0;padding-left:20px}
+.chk-table{overflow-x:auto;margin-top:6px}
+.chk-table table{border-collapse:collapse;width:100%;font-size:.86rem}
+.chk-table th,.chk-table td{border-bottom:1px solid var(--line);padding:6px;vertical-align:top;text-align:left}
+.chk-table .small,.chk .small{font-size:.8rem}
+.chk .chip{white-space:normal}
+.chip.ok{color:var(--ok);border-color:currentColor} .chip.bad{color:var(--bad);border-color:currentColor} .chip.warn{color:var(--warn);border-color:currentColor}
+.chk-note{color:var(--warn);font-size:.8rem;margin-top:3px}
+.chk-table td:nth-child(3){min-width:130px}
+.chk .chip{border-radius:8px}

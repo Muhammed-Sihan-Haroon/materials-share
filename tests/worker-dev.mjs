@@ -53,6 +53,36 @@ globalThis.fetch = async (input, init = {}) => {
     const good = h.get("Authorization") === "Bearer github_pat_TEST" && url.endsWith("/repos/me/materials");
     return new Response(JSON.stringify(good ? { full_name: "me/materials", permissions: { push: true } } : { message: "Bad credentials" }), { status: good ? 200 : 401 });
   }
+  // Crossref and student links, for the reference checks (never reaches the real internet)
+  if (url.startsWith("https://api.crossref.org/works/")) {
+    const doi = decodeURIComponent(url.slice("https://api.crossref.org/works/".length));
+    if (doi.toLowerCase() === "10.1145/362384.362685")
+      return new Response(JSON.stringify({ message: { DOI: doi, title: ["A relational model of data for large shared data banks"], issued: { "date-parts": [[1970, 6]] } } }));
+    if (doi.toLowerCase() === "10.1000/other")
+      return new Response(JSON.stringify({ message: { DOI: doi, title: ["Soil bacteria in alpine meadows"], issued: { "date-parts": [[2019]] } } }));
+    return new Response("Resource not found.", { status: 404 });
+  }
+  if (url.startsWith("https://api.crossref.org/works?")) {
+    const qy = decodeURIComponent(new URL(url).searchParams.get("query.bibliographic") || "").toLowerCase();
+    const items = qy.includes("introduction to database systems") ? [{ DOI: "10.5555/date2004", title: ["An Introduction to Database Systems"], issued: { "date-parts": [[2004]] } }]
+      : [{ DOI: "10.5555/unrelated", title: ["Unrelated work about something else"], issued: { "date-parts": [[2010]] } }];
+    return new Response(JSON.stringify({ message: { items } }));
+  }
+  if (url.startsWith("https://example.test/")) {
+    const html = (t) => new Response(`<!doctype html><html><head><title>${t}</title></head><body>page</body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    const path = new URL(url).pathname;
+    if (path === "/" || path === "") return html("Example home");
+    if (path === "/fetch-api") return html("Using the Fetch API - Web APIs | MDN");
+    if (path === "/wrong") return html("Cookie policy");
+    if (path === "/ok") return html("OK page");
+    return new Response("Not found", { status: 404 });
+  }
+  if (url.startsWith("https://archive.org/wayback/available")) {
+    const target = decodeURIComponent(new URL(url).searchParams.get("url") || "");
+    return new Response(JSON.stringify({ archived_snapshots: target.includes("quantum") ? { closest: { available: true, url: "https://web.archive.org/web/2021/" + target, status: "200" } } : {} }));
+  }
+  // no other website is reached from the tests
+  if (/^https?:\/\//.test(url) && !/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return new Response("blocked in tests", { status: 403 });
   return realFetch(input, init);
 };
 
@@ -62,6 +92,9 @@ const AI = {
     aiState.calls++;
     aiState.last = { model, input };
     if (aiState.mode === "quota") throw new Error("3036: You have used up your daily free allocation of 10,000 neurons");
+    if (String(input.messages[0].content).includes("signs that parts may have been produced")) {
+      return { response: JSON.stringify({ summary: "Parts read as generic and one reference may not exist.", signs: [{ quote: "in today's fast-paced world", why: "generic opening not tied to the task" }], questions: ["How did you choose your sources?", "Explain normalisation in your own words."] }) };
+    }
     const body = {
       criteria: [
         { status: "Met", reason: "Both joins are written correctly." },

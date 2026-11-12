@@ -279,6 +279,17 @@ Students then go to `get.yourdomain.com`.
 - **Using OpenAI (GPT) instead:** add a secret called `OPENAI_API_KEY` to the worker (Settings → Variables and secrets → Add → type *Secret*). When it is set, drafts use OpenAI instead of Workers AI. The default model is `gpt-5.4-mini`; add a text variable `OPENAI_MODEL` to choose another. Delete the secret to go back to Workers AI. Submission text is then sent to OpenAI's API, so check this fits your institution's data policy.
 - Student work is sent as text to Workers AI only when you click an AI button; the student submit page tells students an AI tool may help draft feedback.
 
+### Checking written work: AI use, citations and references
+
+Open a submission and click **Check AI use & references**. It reads the files in your browser (Word, PDF, PowerPoint, text) and shows:
+
+- **Signs of AI tools.** *Strong* signs are text a chatbot leaves behind: links ending `utm_source=chatgpt.com`, ChatGPT citation markers, "Certainly! Here is…", "As an AI language model", unfilled `[Insert …]` placeholders, pasted Markdown. *Weak* signs are style hints: words chatbots overuse (delve, pivotal, multifaceted…), very even sentence lengths, lots of long dashes. If AI drafts are switched on, an **AI reader** also points to specific passages and suggests questions to ask the student.
+- **Citations and references.** Finds in-text citations (Harvard/APA author-date and IEEE numbered) and the reference list, then lists citations with no reference, references never cited, mixed styles, duplicates, missing years and web sources with no date accessed.
+- **Reference lookups.** Each reference (up to 40) is looked up on [Crossref](https://www.crossref.org/): a DOI that doesn't exist, or that belongs to a different paper, is flagged in red. Books are often not on Crossref, so "not found" means check by hand, not "fake".
+- **Websites.** Website references are opened: the page's title is compared with the title the student gives, dead links are flagged (with an archived copy from the Wayback Machine when there is one), and links that only go to a home page are noted. Also flagged: no date accessed, access dates before publication or after hand-in, no author or organisation, citations like (BBC, n.d.) and (NCSC, 2023) matched to "National Cyber Security Centre", web addresses pasted into the text instead of cited, and sources worth a second look (essay or answer-sharing sites such as Chegg or Course Hero, AI tools, Wikipedia, blogs, forums, videos, tutorial sites). Some sites block automated checks; those say "open it yourself".
+
+**Copy report** gives a plain-text summary for your notes. Nothing is saved or shown to the student. These are pointers for a conversation, not proof: AI-writing detection is unreliable, so never use it on its own as evidence in a misconduct case. Only reference titles and DOIs go to Crossref; the full text goes only to your AI provider, as with AI drafts.
+
 ### Privacy
 
 - Submissions are encrypted in the student's browser with your **public key**; only your **marking passphrase** can open them. The passphrase-protected private key lives in `keys/lecturer.json` in the repo. **If you forget the passphrase, submissions can't be recovered.**
