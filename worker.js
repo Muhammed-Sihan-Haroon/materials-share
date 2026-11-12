@@ -13,7 +13,8 @@
  *              MAX_MB    optional, default 20 (Cloudflare KV limit is 25)
  *              AI_MODEL  optional, default @cf/meta/llama-4-scout-17b-16e-instruct
  *   D1 binding: DB  optional: live quizzes (Kahoot-style games); tables are created automatically
- *              STUDENT_ID_PATTERN  optional variable, default ^B00\d{6}$ (students join live games with name + student number)
+ *              STUDENT_ID_PATTERN  optional variable: one student-number pattern for every live game. If unset, the module
+ *                                  code decides: QH… modules need 20…, COM… modules need B00 + 6 digits, others either.
  *   Secrets:   OPENAI_API_KEY  optional: AI drafts use OpenAI (GPT) instead of Workers AI
  *              OPENAI_MODEL    optional variable, default gpt-5.4-mini
  *
@@ -482,6 +483,7 @@ async function liveDb(env) {
     ]);
     // games created before student numbers were added: add the column (fails harmlessly if it exists)
     try { await env.DB.prepare("ALTER TABLE live_players ADD COLUMN sid TEXT").run(); } catch {}
+    try { await env.DB.prepare("ALTER TABLE live_sessions ADD COLUMN mod TEXT").run(); } catch {}
     liveReady = true;
   }
   return env.DB;
@@ -508,6 +510,16 @@ async function board(db, pin, limit) {
   return (await db.prepare("SELECT pid, name, sid, score, streak FROM live_players WHERE pin = ? ORDER BY score DESC, joined ASC LIMIT ?").bind(pin, limit).all()).results || [];
 }
 const NAME_RE = /^[\p{L}][\p{L}\p{M} '’.\-]{1,39}$/u;
+// student-number format by module code (same rules as shared.js)
+function sidRule(env, module) {
+  if (env.STUDENT_ID_PATTERN) {
+    try { return { re: new RegExp(env.STUDENT_ID_PATTERN, "i"), text: "your student number" }; } catch {}
+  }
+  const m = String(module || "").trim().toUpperCase();
+  if (m.startsWith("QH")) return { re: /^20\d{5,8}$/, text: "your QA student number starting with 20, e.g. 20123456" };
+  if (m.startsWith("COM")) return { re: /^B00\d{6}$/, text: "B00 followed by 6 digits, e.g. B00123456" };
+  return { re: /^(?:B00\d{6}|20\d{5,8})$/, text: "B00 followed by 6 digits (Ulster) or your QA number starting with 20" };
+}
 
 async function liveAdmin(path, m, q, request, env, json) {
   const db = await liveDb(env);
@@ -533,8 +545,8 @@ async function liveAdmin(path, m, q, request, env, json) {
     }
     if (!pin) throw fail(503, "Couldn't create a game. Try again.");
     const clean = qs.map((x) => ({ t: x.t, text: x.text, options: x.options, blanks: x.blanks, p: Number(x.p) || 1, a: x.a }));
-    await db.prepare("INSERT INTO live_sessions (pin, title, qs, phase, qi, opened, secs, created, updated) VALUES (?, ?, ?, 'lobby', -1, 0, ?, ?, ?)")
-      .bind(pin, String(b.title || "Live quiz").slice(0, 120), JSON.stringify(clean), secs, now, now).run();
+    await db.prepare("INSERT INTO live_sessions (pin, title, qs, phase, qi, opened, secs, created, updated, mod) VALUES (?, ?, ?, 'lobby', -1, 0, ?, ?, ?, ?)")
+      .bind(pin, String(b.title || "Live quiz").slice(0, 120), JSON.stringify(clean), secs, now, now, String(b.mod || "").trim().slice(0, 40)).run();
     return json({ pin });
   }
   const pin = pinOf(q.get("pin"));
@@ -604,9 +616,8 @@ async function livePublic(path, m, q, request, env, json) {
     const name = String(b.name || "").replace(/\s+/g, " ").trim();
     const sid = String(b.sid || "").replace(/\s+/g, "").toUpperCase();
     if (!NAME_RE.test(name) || (name.match(/\p{L}/gu) || []).length < 2) throw fail(400, "Enter your real name (letters only, as on your student record).");
-    let sidRe;
-    try { sidRe = new RegExp(env.STUDENT_ID_PATTERN || "^B00\\d{6}$", "i"); } catch { sidRe = /^B00\d{6}$/i; }
-    if (!sidRe.test(sid)) throw fail(400, "Enter your student number: B00 followed by 6 digits, e.g. B00123456.");
+    const rule = sidRule(env, s.mod);
+    if (!rule.re.test(sid)) throw fail(400, `Enter your student number: ${rule.text}.`);
     const same = await db.prepare("SELECT pid, name FROM live_players WHERE pin = ? AND sid = ?").bind(pin, sid).first();
     if (same) {
       // the same student rejoining (e.g. after closing the page) gets their place and score back

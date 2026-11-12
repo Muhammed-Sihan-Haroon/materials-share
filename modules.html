@@ -25,6 +25,7 @@
     <div class="main">
       <div class="card" id="empty">
         <div class="empty"><b>Choose a module</b>Pick one on the left, or create a module for each course you teach.</div>
+        <p id="delMsg" role="status" style="margin:10px 0 0;text-align:center"></p>
       </div>
 
       <!-- create / edit module -->
@@ -60,6 +61,7 @@
               <button class="btn ghost small" id="vShow">Show code</button>
               <a class="btn ghost small" id="vStudent" target="_blank" rel="noopener">Student view</a>
               <button class="btn ghost small" id="vEdit">Edit module</button>
+              <button class="btn danger small" id="vDel">Delete module</button>
             </div>
           </div>
           <div class="row" style="align-items:center;margin-top:14px">
@@ -246,9 +248,50 @@
     });
   };
 
+  // ---------- delete a module: its page and files go; activities stay on the Activities & marking page
+  $("vDel").onclick = async () => {
+    const m = M;
+    const files = m.items.reduce((n, i) => n + (i.files || []).length, 0);
+    const acts = m.items.filter((i) => i.activity).length;
+    const ok = await Lecturer.confirmDelete({
+      title: `Delete ${m.short}?`,
+      word: m.short,
+      button: "Delete module",
+      lines: [
+        `Removes the module page and all ${m.items.length} item${m.items.length === 1 ? "" : "s"} in it` + (files ? ` (${files} file${files === 1 ? "" : "s"}).` : "."),
+        `Students' code ${MS.pretty(m.code)} stops working.`,
+        acts ? `${acts} linked activit${acts === 1 ? "y is" : "ies are"} kept, with all submissions, on the Activities & marking page.` : "Activities and submissions are not affected.",
+        "This can't be undone.",
+      ],
+    });
+    if (!ok) return;
+    const job = async () => {
+      Lecturer.say($("vSave"), "Deleting…");
+      try {
+        const fresh = await L.loadIndex();
+        const paths = new Set(await L.gh.listDir(`m/${m.id}`));
+        fresh.modules = fresh.modules.filter((x) => x.id !== m.id);
+        await L.gh.commit([...[...paths].map((path) => ({ path, remove: true })), await L.indexEntry(fresh)], `Delete module ${m.short}`);
+        ix = fresh;
+        if (L.SVC) for (const i of m.items) if (i.status === "scheduled") L.svc("DELETE", `/admin/key?id=${i.id}`).catch(() => {});
+        M = null;
+        history.replaceState(null, "", location.pathname + location.search);
+        $("modView").hidden = true;
+        renderMods();
+        updateEmpty();
+        Lecturer.say($("delMsg"), `Deleted ${m.short}.`, "ok");
+      } catch (e) {
+        Lecturer.say($("vSave"), "Couldn't delete: " + (e.message || e.name), "err");
+      }
+    };
+    chain = chain.then(job, job);
+    await chain;
+  };
+
   // ---------- one module
   function openModule(m, fresh) {
     M = m;
+    $("delMsg").textContent = "";
     history.replaceState(null, "", "#" + m.id);
     $("modForm").hidden = true;
     $("modView").hidden = false;

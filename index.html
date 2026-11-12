@@ -537,6 +537,7 @@
     renderAnswers();
     document.title = b.title;
     $("aMod").textContent = b.module || "";
+    $("sId").placeholder = MS.sidRule(b.module).eg || "Student number";
     $("aTitle").textContent = b.title;
     $("aBrief").textContent = b.brief || "";
     $("aCrit").hidden = !(b.criteria && b.criteria.length);
@@ -605,7 +606,7 @@
     ev.preventDefault();
     const msg = $("subMsg");
     msg.className = "muted";
-    const who = MS.checkStudent($("sName").value, $("sId").value);
+    const who = MS.checkStudent($("sName").value, $("sId").value, current.brief.module);
     if (who.error) { msg.className = "err"; msg.textContent = who.error; return; }
     const { name, sid } = who;
     $("sId").value = sid;

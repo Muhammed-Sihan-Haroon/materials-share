@@ -31,6 +31,7 @@
       <p id="qInfo" class="muted"></p>
       <div class="grid">
         <div><label for="gTitle">Game title</label><input id="gTitle" maxlength="120" placeholder="Week 5 networking"></div>
+        <div><label for="gMod">Module code</label><input id="gMod" maxlength="40" placeholder="QHO444 or COM106"><p class="hint" id="gModHint"></p></div>
         <div><label for="secs">Time per question</label>
           <select id="secs"><option value="10">10 seconds</option><option value="20" selected>20 seconds</option><option value="30">30 seconds</option><option value="45">45 seconds</option><option value="60">1 minute</option><option value="90">90 seconds</option></select></div>
       </div>
@@ -91,12 +92,17 @@
     const v = $("src").value;
     if (v === "file") return Quiz.parseQuiz($("qText").value);
     const a = (index.activities || []).find((x) => x.id === v);
-    return { questions: (a && a.quiz && a.quiz.q) || [], problems: [], title: a ? a.title : "" };
+    return { questions: (a && a.quiz && a.quiz.q) || [], problems: [], title: a ? a.title : "", module: a ? a.module : "" };
+  }
+  function modHint() {
+    $("gModHint").textContent = "Student numbers: " + MS.sidRule($("gMod").value).text + ".";
   }
   function info() {
     const p = chosen();
     $("fileBox").hidden = $("src").value !== "file";
     if ($("src").value !== "file" && p.title && !$("gTitle").dataset.typed) $("gTitle").value = p.title;
+    if ($("src").value !== "file" && !$("gMod").dataset.typed) $("gMod").value = p.module || "";
+    modHint();
     $("qInfo").className = p.problems.length ? "err" : "muted";
     $("qInfo").textContent = p.problems.length ? `${p.problems.length} question(s) need fixing first: ` + p.problems.map((x) => `Q${x.n}: ${x.msg}`).join("; ")
       : p.questions.length ? `${p.questions.length} question${p.questions.length === 1 ? "" : "s"} ready.` : "";
@@ -111,6 +117,7 @@
     $("src").append(el("option", { value: "file", text: "Upload a quiz file or type questions" }));
     $("src").onchange = info;
     $("gTitle").oninput = () => { $("gTitle").dataset.typed = "1"; };
+    $("gMod").oninput = () => { $("gMod").dataset.typed = "1"; modHint(); };
     $("qText").oninput = info;
     $("qFile").onchange = async () => {
       const f = $("qFile").files[0];
@@ -131,7 +138,7 @@
       if (!p.questions.length) return say($("setupMsg"), "Choose a quiz activity, or add questions.", "err");
       try {
         const qs = p.questions.map((q) => ({ t: q.t, text: q.text, options: q.options, blanks: q.blanks, p: q.p, a: q.a }));
-        const r = await (await L.svc("POST", "/admin/live/start", JSON.stringify({ title: $("gTitle").value.trim() || "Live quiz", secs: Number($("secs").value), qs }))).json();
+        const r = await (await L.svc("POST", "/admin/live/start", JSON.stringify({ title: $("gTitle").value.trim() || "Live quiz", mod: $("gMod").value.trim(), secs: Number($("secs").value), qs }))).json();
         pin = r.pin;
         try { sessionStorage.setItem("ms-live-pin", pin); } catch {}
         enterStage();

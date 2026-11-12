@@ -310,15 +310,29 @@
 
   const fmtDate = (iso) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-  // ---------- student identity: a real name and a student number (B00 + 6 digits unless config.js sets studentIdPattern)
-  const sidPattern = () => (global.SITE && global.SITE.studentIdPattern) || "^B00\\d{6}$";
-  function checkStudent(rawName, rawSid) {
+  // ---------- student identity: a real name and a student number whose format depends on the module code
+  //   QH… modules (QA):     starts with 20, e.g. 20123456
+  //   COM… modules (Ulster): B00 + 6 digits, e.g. B00123456
+  //   anything else / none: either format
+  // config.js can set studentIdPattern to use one pattern everywhere instead.
+  const SID_QA = { re: "^20\\d{5,8}$", text: "your QA student number starting with 20, e.g. 20123456", eg: "20123456" };
+  const SID_UU = { re: "^B00\\d{6}$", text: "B00 followed by 6 digits, e.g. B00123456", eg: "B00123456" };
+  function sidRule(module) {
+    if (global.SITE && global.SITE.studentIdPattern) return { re: global.SITE.studentIdPattern, text: "your student number", eg: "" };
+    const m = String(module || "").trim().toUpperCase();
+    if (m.startsWith("QH")) return SID_QA;
+    if (m.startsWith("COM")) return SID_UU;
+    return { re: "^(?:B00\\d{6}|20\\d{5,8})$", text: "B00 followed by 6 digits (Ulster) or your QA number starting with 20", eg: "B00123456 or 20123456" };
+  }
+  const sidPattern = (module) => sidRule(module).re;
+  function checkStudent(rawName, rawSid, module) {
     const name = String(rawName || "").replace(/\s+/g, " ").trim();
     const sid = String(rawSid || "").replace(/\s+/g, "").toUpperCase();
     if (!/^[\p{L}][\p{L}\p{M} '’.\-]{1,39}$/u.test(name) || (name.match(/\p{L}/gu) || []).length < 2)
       return { name, sid, error: "Enter your real name (letters only, as on your student record)." };
-    if (!new RegExp(sidPattern(), "i").test(sid))
-      return { name, sid, error: "Enter your student number: B00 followed by 6 digits, e.g. B00123456." };
+    const rule = sidRule(module);
+    if (!new RegExp(rule.re, "i").test(sid))
+      return { name, sid, error: `Enter your student number: ${rule.text}.` };
     return { name, sid, error: "" };
   }
 
@@ -326,6 +340,6 @@
     ALPHABET, LEN, ITER, normalise, pretty, valid, newCode, derive, seal, unseal, importAes,
     b64e, b64d, toJSON, fromJSON, text, createLecturerKeys, unlockLecturer, importPub, sealFor, openWith,
     pack, unpack, buildShare, openAny, activityState, sizeText, fmtDate, brand, tiles,
-    randHex, randKey, itemKey, weekOf, currentWeek, checkStudent, sidPattern,
+    randHex, randKey, itemKey, weekOf, currentWeek, checkStudent, sidPattern, sidRule,
   };
 })(typeof window !== "undefined" ? window : globalThis);

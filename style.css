@@ -215,6 +215,7 @@ tr.sel td{background:var(--accent-soft)}
 
 /* ---------- dialog */
 dialog{border:1px solid var(--line);border-radius:var(--r-md);padding:24px;max-width:620px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
+dialog .del-list{margin:8px 0 14px;padding-left:20px;line-height:1.5}
 dialog::backdrop{background:rgba(16,22,30,.45)}
 fieldset.vis{border:1px solid var(--line);border-radius:var(--r-sm);margin:16px 0 0;padding:10px 14px 12px}
 fieldset.vis legend{font-weight:700;font-size:.88rem;padding:0 6px}

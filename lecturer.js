@@ -274,6 +274,31 @@
     ];
   }
 
+  // ---------- "type the name to delete" confirmation (shared)
+  function confirmDelete({ title, lines = [], word, button = "Delete" }) {
+    return new Promise((resolve) => {
+      const want = String(word).trim().toLowerCase();
+      const inp = el("input", { id: "delWord", autocomplete: "off", spellcheck: "false" });
+      const go = el("button", { type: "button", class: "btn danger", id: "delGo", text: button, disabled: true });
+      const no = el("button", { type: "button", class: "btn ghost", text: "Cancel" });
+      const d = el("dialog", { id: "delDlg", "aria-labelledby": "delH" },
+        el("h2", { id: "delH", text: title }),
+        el("ul", { class: "del-list" }, ...lines.map((t) => el("li", { text: t }))),
+        el("label", { for: "delWord" }, "Type ", el("b", { class: "mono", text: word }), " to confirm"), inp,
+        el("p", { class: "actions", style: "margin-top:16px" }, go, no));
+      let done = false;
+      const end = (v) => { if (done) return; done = true; d.close(); d.remove(); resolve(v); };
+      inp.oninput = () => { go.disabled = inp.value.trim().toLowerCase() !== want; };
+      inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); if (!go.disabled) end(true); } };
+      go.onclick = () => end(true);
+      no.onclick = () => end(false);
+      d.addEventListener("close", () => end(false));
+      document.body.append(d);
+      d.showModal();
+      inp.focus();
+    });
+  }
+
   // ---------- presenter screen (shared)
   function present({ title, code, sub, fresh }) {
     let o = $("present");
@@ -300,5 +325,5 @@
     o.hidden = false;
   }
 
-  global.Lecturer = { ready, signOut, present, el, say, busy, siteUrl, siteHost, moduleKey, moduleEntries, released };
+  global.Lecturer = { ready, signOut, present, el, say, busy, siteUrl, siteHost, moduleKey, moduleEntries, released, confirmDelete };
 })(window);

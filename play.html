@@ -21,7 +21,7 @@
     <label for="nick">Your name</label>
     <input id="nick" maxlength="40" autocomplete="name" required placeholder="First and last name">
     <label for="sid">Student number</label>
-    <input id="sid" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="B00123456" class="mono">
+    <input id="sid" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="B00123456 or 20123456" class="mono">
     <p class="hint">Your name appears on the leaderboard; your student number is only seen by your lecturer. Copying questions, pasting answers and leaving the game while a question is open are shown to your lecturer.</p>
     <p class="actions" style="margin-top:14px"><button class="btn" id="joinBtn">Join</button></p>
     <p id="joinMsg" class="err" role="alert"></p>
@@ -78,7 +78,7 @@
     ev.preventDefault();
     const p = $("pin").value.replace(/\D/g, "");
     if (p.length !== 6) { $("joinMsg").textContent = "The game PIN has 6 digits."; return; }
-    const who = MS.checkStudent($("nick").value, $("sid").value);
+    const who = MS.checkStudent($("nick").value, $("sid").value); // the game checks the module's own format
     if (who.error) { $("joinMsg").textContent = who.error; return; }
     $("joinBtn").disabled = true;
     $("joinMsg").textContent = "";
