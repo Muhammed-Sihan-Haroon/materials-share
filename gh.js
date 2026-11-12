@@ -55,6 +55,20 @@
       await gh("/git/refs/heads/" + encodeURIComponent(conn.branch), { method: "PATCH", body: JSON.stringify({ sha: c.sha }) });
     }
 
+    // Every file under a folder on the branch (recursively). Missing folder → [].
+    async function listDir(dir) {
+      let items;
+      try { items = await gh(`/contents/${dir}?ref=${encodeURIComponent(conn.branch)}`); }
+      catch (e) { if (e.status === 404) return []; throw e; }
+      if (!Array.isArray(items)) return [];
+      const out = [];
+      for (const it of items) {
+        if (it.type === "dir") out.push(...(await listDir(it.path)));
+        else out.push(it.path);
+      }
+      return out;
+    }
+
     async function check() {
       const repo = await gh("");
       if (!repo.permissions || !repo.permissions.push) throw new Error("token can't write to this repository");
@@ -62,7 +76,7 @@
       return repo.full_name;
     }
 
-    return { gh, getFile, getJSON, commit, check };
+    return { gh, getFile, getJSON, commit, check, listDir };
   }
 
   global.GH = { create };

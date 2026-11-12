@@ -27,6 +27,7 @@
     <div class="main">
     <div class="card" id="emptyMain">
       <div class="empty"><b>Choose an activity</b>Pick one on the left to see its submissions, or create a new one.</div>
+      <p id="delMsg" role="status" style="margin:10px 0 0;text-align:center"></p>
     </div>
 
     <div class="card" id="newCard" hidden>
@@ -99,6 +100,7 @@
           <button class="btn ghost small" id="breakdown" hidden>Question breakdown</button>
           <button class="btn ghost small" id="exportCsv">Export CSV</button>
           <button class="btn danger small" id="toggleClose">Close submissions</button>
+          <button class="btn danger small" id="delAct">Delete activity</button>
         </div>
       </div>
       <p id="sMsg" class="muted"></p>
@@ -491,6 +493,7 @@
 
   // ---------- submissions
   async function openActivity(a) {
+    $("delMsg").textContent = "";
     act = a;
     pos = -1;
     cur = null;
@@ -617,6 +620,64 @@
   });
 
   // ---------- move an activity into, between or out of modules (only module listings and your list change)
+  // ---------- delete an activity: its files, its link in any module, and (on the submissions service) its submissions
+  $("delAct").onclick = async () => {
+    if (!act) return;
+    const a0 = act;
+    let n = subs.length;
+    if (L.SVC) { try { n = (await (await svc("GET", `/admin/list?a=${a0.id}`)).json()).subs.length; } catch {} }
+    const link = linkOf(a0);
+    const ok = await Lecturer.confirmDelete({
+      title: `Delete "${a0.title}"?`,
+      word: "delete",
+      button: "Delete activity",
+      lines: [
+        n ? `${n} submission${n === 1 ? "" : "s"}, with marks and feedback, are deleted for good. Use Export CSV first if you need the marks.` : "There are no submissions.",
+        `The code ${MS.pretty(a0.code)} stops working.`,
+        link ? `It's taken out of ${link.m.short}, week ${link.it.week}.` : "It isn't in a module.",
+        "This can't be undone.",
+      ],
+    });
+    if (!ok) return;
+    await busy($("delAct"), "Deleting…", async () => {
+      try {
+        say($("sMsg"), "Deleting…");
+        index = await loadIndex();
+        const a = index.activities.find((x) => x.id === a0.id) || a0;
+        const changed = [];
+        for (const m of index.modules || []) {
+          const before = m.items.length;
+          m.items = m.items.filter((i) => !(i.activity && i.activity.id === a.id));
+          if (m.items.length !== before) changed.push(m);
+        }
+        index.activities = index.activities.filter((x) => x.id !== a.id);
+        const entries = (await gh.listDir(`a/${a.id}`)).map((path) => ({ path, remove: true }));
+        for (const m of changed) entries.push(...(await Lecturer.moduleEntries(m)));
+        await gh.commit([...entries, await indexEntry()], `Delete activity ${a.title}`);
+        // GitHub is done; now clear what the submissions service holds for it
+        let left = 0;
+        if (L.SVC) {
+          try {
+            const j = await (await svc("GET", `/admin/list?a=${a.id}`)).json();
+            const rs = [...new Set([...j.subs, ...j.drafts].map((x) => x.r))];
+            for (const r of rs) await svc("DELETE", `/admin/sub?a=${a.id}&r=${r}`).catch(() => { left++; });
+          } catch { left = -1; }
+          if (a.type === "quiz") await svc("DELETE", `/admin/quiz?a=${a.id}`).catch(() => null);
+          if (a.answers && a.answers.id) await svc("DELETE", `/admin/key?id=${a.answers.id}`).catch(() => null);
+        }
+        act = null; subs = [];
+        history.replaceState(null, "", location.pathname + location.search);
+        $("subsCard").hidden = true;
+        $("review").hidden = true;
+        renderActs();
+        updateEmpty();
+        say($("delMsg"), left ? `Deleted "${a.title}", but some stored submissions couldn't be cleared from the submissions service. They're encrypted and nobody can open them without your key.` : `Deleted "${a.title}".`, left ? "err" : "ok");
+      } catch (e) {
+        say($("sMsg"), "Couldn't delete: " + (e.message || e.name), "err");
+      }
+    });
+  };
+
   function linkOf(a) {
     for (const m of index.modules || []) {
       const it = (m.items || []).find((i) => i.activity && i.activity.id === a.id);
