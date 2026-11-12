@@ -98,6 +98,7 @@
           <button class="btn small" id="aiAll" hidden>AI draft all new</button>
           <button class="btn ghost small" id="releaseAll">Release all drafts</button>
           <button class="btn ghost small" id="breakdown" hidden>Question breakdown</button>
+          <button class="btn ghost small" id="chkAll" hidden>Check all for AI &amp; references</button>
           <button class="btn ghost small" id="exportCsv">Export CSV</button>
           <button class="btn danger small" id="toggleClose">Close submissions</button>
           <button class="btn danger small" id="delAct">Delete activity</button>
@@ -509,6 +510,7 @@
     $("toggleClose").textContent = a.closed ? "Reopen submissions" : "Close submissions";
     $("toggleClose").className = a.closed ? "btn ghost small" : "btn danger small";
     $("aiAll").hidden = !aiOn || a.type === "quiz";
+    $("chkAll").hidden = a.type === "quiz";
     $("breakdown").hidden = a.type !== "quiz";
     $("releaseAll").textContent = a.type === "quiz" ? "Release all scores" : "Release all drafts";
     $("qStats").hidden = true;
@@ -540,6 +542,9 @@
       }
       for (const s of out) s.earlier = latest.get(s.key) !== s;
       out.sort((x, y) => x.info.name.localeCompare(y.info.name) || y.info.t.localeCompare(x.info.t));
+      // keep check results already run in this session (same activity)
+      const had = new Map(subs.filter((x) => x.checks && x.a === act.id).map((x) => [x.r, x.checks]));
+      for (const x of out) { x.a = act.id; if (had.has(x.r)) x.checks = had.get(x.r); }
       subs = out;
       say(m, "");
       renderSubs();
@@ -594,6 +599,7 @@
         f.title = `${s.info.fl} integrity alert${s.info.fl === 1 ? "" : "s"}: open the attempt to see which questions`;
         status.append(" ", f);
       }
+      if (s.checks) status.append(checkChips(s));
       tr.append(name, sid, when, files, status);
       tr.onclick = () => openSub(i);
       t.append(tr);
@@ -940,6 +946,7 @@
         renderTabs();
         showFile(0);
         fillForm(draft);
+        if (s.checks && !s.checks.empty) { cur.checks = s.checks; $("chkBox").hidden = false; renderChecks(cur); }
       }
     } catch (e) {
       if (seq === openSeq) setPreviewNote("Couldn't open this submission: " + e.message);
@@ -1594,24 +1601,19 @@
   const LOOKUP_CLASS = { found: "ok", "doi-missing": "bad", "doi-mismatch": "bad", close: "warn", "not-found": "warn", "link-ok": "ok", "link-dead": "bad", "link-unsure": "warn", "page-differs": "warn", "bad-url": "bad", skipped: "", error: "" };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 
-  $("chkBtn").onclick = () => cur && busy($("chkBtn"), "Checking…", async () => {
-    const c = cur;
-    const box = $("chkBox");
-    box.hidden = false;
-    box.textContent = "";
-    box.append(el("p", "muted", "Reading the files…"));
+  // runs every check on one submission; `show` is called as results arrive
+  async function runChecks(s, pkg, { reader = true, show = () => {} } = {}) {
     const parts = [];
-    for (const f of c.pkg.files) {
+    for (const f of pkg.files) {
       const t = await extractText(f);
       if (!/^\[(?:image file|file type|couldn't read)/.test(t)) parts.push(t);
     }
     const text = parts.join("\n\n");
-    if (cur !== c) return;
-    if (text.replace(/\s+/g, "").length < 200) { box.textContent = ""; box.append(el("p", "muted", "There isn't enough readable text in this submission to check (images, scans and most code files can't be checked).")); return; }
-    c.checks = { text, refs: Checks.references(text, { submitted: c.s.info.t }), ai: Checks.aiSigns(text), lookups: null, reviewer: null, notes: [] };
-    renderChecks(c);
+    if (text.replace(/\s+/g, "").length < 200) { s.checks = { empty: true }; show(); return s.checks; }
+    const k = s.checks = { refs: Checks.references(text, { submitted: s.info.t }), ai: Checks.aiSigns(text), lookups: null, urlLookups: null, reviewer: reader && aiOn ? null : undefined, notes: [], t: Date.now() };
+    show();
     const jobs = [];
-    const R = c.checks.refs;
+    const R = k.refs;
     if (L.SVC && (R.refs.length || R.bodyUrls.length)) jobs.push((async () => {
       // references first, then links pasted in the text; small batches keep each request within Cloudflare's limits
       const MAXREF = 40, MAXURL = 10;
@@ -1623,25 +1625,85 @@
         for (let i = 0; i < items.length; i += 8) {
           const j = await (await svc("POST", "/admin/refcheck", JSON.stringify({ refs: items.slice(i, i + 8) }))).json();
           res.push(...j.results);
-          c.checks.lookups = res.slice(0, nRef);
-          c.checks.urlLookups = res.slice(nRef);
-          if (cur === c) renderChecks(c);
+          k.lookups = res.slice(0, nRef);
+          k.urlLookups = res.slice(nRef);
+          show();
         }
-      } catch (e) { c.checks.notes.push("Lookups didn't finish: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); }
-      c.checks.lookups = res.slice(0, nRef);
-      c.checks.urlLookups = res.slice(nRef);
-      c.checks.done = true;
-      if (R.refs.length > MAXREF) c.checks.notes.push(`Looked up the first ${MAXREF} of ${R.refs.length} references.`);
-      if (cur === c) renderChecks(c);
+      } catch (e) { k.notes.push("Lookups didn't finish: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); }
+      k.lookups = res.slice(0, nRef);
+      k.urlLookups = res.slice(nRef);
+      if (R.refs.length > MAXREF) k.notes.push(`Looked up the first ${MAXREF} of ${R.refs.length} references.`);
     })());
-    if (L.SVC && aiOn) jobs.push((async () => {
+    if (L.SVC && reader && aiOn) jobs.push((async () => {
       try {
         const body = JSON.stringify({ activity: { title: act.title, module: act.module, brief: act.brief }, text: text.slice(0, 30000) });
-        c.checks.reviewer = await (await svc("POST", "/admin/aicheck", body)).json();
-      } catch (e) { c.checks.notes.push("AI reader didn't run: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); c.checks.reviewer = false; }
-      if (cur === c) renderChecks(c);
+        k.reviewer = await (await svc("POST", "/admin/aicheck", body)).json();
+      } catch (e) { k.notes.push("AI reader didn't run: " + (e.status === 404 ? "deploy the latest worker.js to Cloudflare." : e.message)); k.reviewer = false; if (e.status === 429) k.quota = true; }
+      show();
     })());
     await Promise.all(jobs);
+    k.done = true;
+    show();
+    return k;
+  }
+
+  // a short summary for the submissions table and the CSV
+  function checkSummary(k) {
+    if (!k) return null;
+    if (k.empty) return { empty: true };
+    const notFound = (k.lookups || []).filter((x) => x && /^(doi-missing|doi-mismatch|link-dead|page-differs)$/.test(x.status)).length;
+    return { strong: k.ai.strong.length, weak: k.ai.weak.length, reader: k.reviewer ? k.reviewer.signs.length : null, refs: k.refs.refs.length, cites: k.refs.cites.length, issues: k.refs.issues.length, notFound, done: !!k.done };
+  }
+  function checkChips(s) {
+    const x = checkSummary(s.checks);
+    const span = document.createElement("span");
+    if (!x) return span;
+    const chip = (cls, text, title) => { const c = el("span", "chip " + cls, text); if (title) c.title = title; span.append(" ", c); };
+    if (x.empty) { chip("", "no text to check"); return span; }
+    if (!x.done) { chip("", "checking…"); return span; }
+    if (x.strong) chip("bad", `AI ⚠ ${x.strong}`, `${x.strong} strong sign${x.strong === 1 ? "" : "s"} of AI tools`);
+    if (x.notFound) chip("bad", `refs ✗ ${x.notFound}`, `${x.notFound} reference${x.notFound === 1 ? "" : "s"} not found where the student says`);
+    if (x.weak || x.reader) chip("warn", `style ${x.weak + (x.reader || 0)}`, "weak signs and AI reader notes");
+    if (x.issues) chip("warn", `cite ${x.issues}`, `${x.issues} citation or reference issue${x.issues === 1 ? "" : "s"}`);
+    if (!x.strong && !x.notFound && !x.weak && !x.reader && !x.issues) chip("ok", "checks clear");
+    return span;
+  }
+
+  $("chkBtn").onclick = () => cur && busy($("chkBtn"), "Checking…", async () => {
+    const c = cur;
+    const box = $("chkBox");
+    box.hidden = false;
+    box.textContent = "";
+    box.append(el("p", "muted", "Reading the files…"));
+    await runChecks(c.s, c.pkg, { show: () => {
+      if (cur === c) {
+        c.checks = c.s.checks;
+        if (c.checks.empty) { box.textContent = ""; box.append(el("p", "muted", "There isn't enough readable text in this submission to check (images, scans and most code files can't be checked).")); }
+        else renderChecks(c);
+      }
+      renderSubs();
+    } });
+  });
+
+  // every submission at once (existing ones too); results show in the table and the CSV
+  $("chkAll").onclick = () => busy($("chkAll"), "Checking…", async () => {
+    const todo = subs.slice();
+    const m = $("sMsg");
+    if (!todo.length) return say(m, "No submissions to check yet.");
+    const reader = aiOn && confirm(`Check all ${todo.length} submission${todo.length === 1 ? "" : "s"}.\n\nAlso ask the AI reader about each one? Press OK for yes (about 20 seconds per student, uses your AI allowance) or Cancel for the quicker checks only.`);
+    let done = 0, failed = 0, quota = false;
+    for (const s of todo) {
+      say(m, `Checking ${done + failed + 1} of ${todo.length}: ${s.info.name}…`);
+      try {
+        const pkg = cur && cur.s === s ? cur.pkg : MS.unpack(await MS.openWith(vault.priv, await (await svc("GET", `/admin/sub?a=${act.id}&r=${s.r}`)).arrayBuffer()));
+        const k = await runChecks(s, pkg, { reader: reader && !quota, show: () => { if (cur && cur.s === s) { cur.checks = s.checks; if (!s.checks.empty) renderChecks(cur); } renderSubs(); } });
+        if (k.quota) quota = true;
+        done++;
+      } catch (e) { failed++; }
+    }
+    renderSubs();
+    const flagged = todo.filter((s) => { const x = checkSummary(s.checks); return x && (x.strong || x.notFound); }).length;
+    say(m, `Checked ${done}${failed ? `, ${failed} couldn't be opened` : ""}. ${flagged ? `${flagged} ha${flagged === 1 ? "s" : "ve"} strong signs or references that couldn't be found (red in the table).` : "None has strong signs or missing references."} Open a student to see the details.` + (quota ? " The AI reader stopped: today's AI allowance is used up." : ""), failed ? "err" : "ok");
   });
 
   function renderChecks(c) {
@@ -1729,6 +1791,14 @@
     for (const n of k.notes) box.append(el("p", "muted", n));
   }
 
+  function checkCols(s) {
+    const x = checkSummary(s.checks), k = s.checks;
+    if (!x) return ["", "", "", "", "", "", "", "not checked"];
+    if (x.empty) return ["", "", "", "", "", "", "", "no readable text"];
+    const det = [...k.ai.strong.map((a) => "Strong: " + a.label), ...k.refs.issues].join(" | ");
+    return [x.strong, x.weak, x.reader ?? "", x.cites, x.refs, x.issues, x.notFound, det];
+  }
+
   // ---------- CSV
   const cell = (v) => {
     let s = v === null || v === undefined ? "" : String(v);
@@ -1738,7 +1808,9 @@
   $("exportCsv").onclick = () => busy($("exportCsv"), "Exporting…", async () => {
     try {
       const quiz = act.type === "quiz";
-      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...(quiz ? ["Auto score", "Integrity alerts"] : []), ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment"];
+      const chk = !quiz && subs.some((s) => s.checks);
+      const head = ["Student", "Student number", "Submitted", "Late", "Earlier attempt", ...(quiz ? ["Auto score", "Integrity alerts"] : []), ...act.criteria, "Mark", "Out of", "Status", "Released", "Comment",
+        ...(chk ? ["AI signs (strong)", "AI signs (weak)", "AI reader notes", "In-text citations", "References", "Citation/reference issues", "References not found", "Check details"] : [])];
       const rows = [head];
       for (const s of subs) {
         const d = s.draft ? await getDraft(s) : null;
@@ -1748,6 +1820,7 @@
           ...act.criteria.map((_, i) => (d && d.criteria && d.criteria[i] ? LABEL[d.criteria[i]] : "")),
           d ? d.mark : "", act.outOf || "", !d ? "Not started" : d.released ? "Released" : "Draft",
           d && d.releasedAt ? MS.fmtDate(d.releasedAt) : "", d ? d.comment : "",
+          ...(chk ? checkCols(s) : []),
         ]);
       }
       const csv = "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
